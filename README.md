@@ -77,7 +77,7 @@ python stock_market_tracking_system.py
 
 ## GitHub Actions
 
-GitHub Actions 設定為每天台灣時間下午 14:06 執行一次，14:21 備援觸發；程式會避免同日重複寄送。
+GitHub Actions 設定為每天台灣時間下午 16:00 執行一次，16:15 備援觸發；程式會避免同日重複寄送。
 
 寄信需要在 GitHub repo 的 Secrets 設定：
 
