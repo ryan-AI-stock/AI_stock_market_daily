@@ -1898,7 +1898,7 @@ def build_social_report_pages(results: list, today: str, cfg: dict | None = None
           <div class='metric'><div class='metric-label'>美元/台幣</div><div class='metric-value'>{fx_value}</div></div>
           <div class='metric'><div class='metric-label'>美10年債殖利率</div><div class='metric-value'>{rates_value}</div></div>
         </div>
-        <div class='pulse' style='--c:{market_color}'><div class='pulse-main'>💡 {market_summary}｜{market_headline}</div><div class='pulse-sub'>{market_reason}</div></div>
+        <div class='pulse' style='--c:{market_color}'><div class='pulse-main'>{market_summary}｜{market_headline}</div><div class='pulse-sub'>{market_reason}</div></div>
       </div>"""
 
     impact_colors = {"高": UP_COLOR, "中高": WARN_COLOR, "中": "#f39c12", "低": NEUTRAL_COLOR}
@@ -1938,7 +1938,7 @@ def build_social_report_pages(results: list, today: str, cfg: dict | None = None
         cards += (
             f"<div class='card' style='--c:{r.get('border', NEUTRAL_COLOR)}'>"
             f"<div class='card-head'><div><div class='card-name'>{html_lib.escape(name)}</div><div class='code'>{code}</div></div><div class='price'>{r.get('close',0):.2f}</div></div>"
-            f"<div class='badge'>💡 {html_lib.escape(r.get('summary','無訊號'))}</div>"
+            f"<div class='badge'>{html_lib.escape(r.get('summary','無訊號'))}</div>"
             f"<div class='op'>{html_lib.escape(trade_plan.get('headline','觀察'))}</div>"
             f"<div class='reason'>{_social_reason(r)}</div>"
             f"<div class='indicator-grid'>"
@@ -2045,7 +2045,7 @@ def drive_file_exists(file_name: str, cfg: dict) -> bool:
     if not drive_cfg.get("enabled", False):
         return False
 
-    folder_id = (os.environ.get("DAILY_REPORT_DRIVE_FOLDER_ID") or os.environ.get("GOOGLE_DRIVE_FOLDER_ID") or drive_cfg.get("folder_id"))
+    folder_id = os.environ.get("DAILY_REPORT_DRIVE_FOLDER_ID") or drive_cfg.get("folder_id")
     if not folder_id:
         return False
 
@@ -2078,7 +2078,7 @@ def upload_report_image_to_drive(image_path: Path, today: str, cfg: dict) -> str
     if not drive_cfg.get("enabled", False):
         return None
 
-    folder_id = (os.environ.get("DAILY_REPORT_DRIVE_FOLDER_ID") or os.environ.get("GOOGLE_DRIVE_FOLDER_ID") or drive_cfg.get("folder_id"))
+    folder_id = os.environ.get("DAILY_REPORT_DRIVE_FOLDER_ID") or drive_cfg.get("folder_id")
     if not folder_id:
         print("⚠️  未設定 Google Drive folder_id，跳過上傳圖片")
         return None
