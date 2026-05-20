@@ -6,7 +6,7 @@ v4 新增：每檔股票獨立 overrides 設定，支援個別化指標門檻與
 """
 
 import html as html_lib
-import base64, json, os, re, smtplib, sys, requests
+import json, os, re, smtplib, sys, requests
 import xml.etree.ElementTree as ET
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote_plus
@@ -2001,54 +2001,30 @@ def render_report_image(html_path: Path, today: str, cfg: dict, output_name: str
         return None
 
 
-def _load_google_service_account_info() -> dict | None:
-    raw = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
-    if not raw:
-        return None
-    try:
-        if raw.startswith("{"):
-            return json.loads(raw)
-        return json.loads(base64.b64decode(raw).decode("utf-8"))
-    except Exception as exc:
-        print(f"⚠️  GOOGLE_SERVICE_ACCOUNT_JSON 格式錯誤：{exc}")
-        return None
-
-
 def _build_google_drive_credentials():
     scopes = ["https://www.googleapis.com/auth/drive"]
     refresh_token = os.environ.get("GOOGLE_OAUTH_REFRESH_TOKEN", "").strip()
     client_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "").strip()
     client_secret = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
-    if refresh_token and client_id and client_secret:
-        try:
-            from google.oauth2.credentials import Credentials
-            from google.auth.transport.requests import Request
-            credentials = Credentials(
-                token=None,
-                refresh_token=refresh_token,
-                token_uri="https://oauth2.googleapis.com/token",
-                client_id=client_id,
-                client_secret=client_secret,
-                scopes=scopes,
-            )
-            credentials.refresh(Request())
-            return credentials, "OAuth"
-        except Exception as exc:
-            print(f"⚠️  Google OAuth 憑證失敗，改試 service account：{exc}")
-
-    sa_info = _load_google_service_account_info()
-    if sa_info:
-        try:
-            from google.oauth2 import service_account
-            credentials = service_account.Credentials.from_service_account_info(
-                sa_info,
-                scopes=scopes,
-            )
-            return credentials, "service account"
-        except Exception as exc:
-            print(f"⚠️  Google service account 憑證失敗：{exc}")
-
-    return None, ""
+    if not (refresh_token and client_id and client_secret):
+        print("⚠️  未設定 Google OAuth 憑證，跳過 Google Drive 操作")
+        return None, ""
+    try:
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request
+        credentials = Credentials(
+            token=None,
+            refresh_token=refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=scopes,
+        )
+        credentials.refresh(Request())
+        return credentials, "OAuth"
+    except Exception as exc:
+        print(f"⚠️  Google OAuth 憑證失敗：{exc}")
+        return None, ""
 
 
 def build_google_drive_service():
@@ -2069,7 +2045,7 @@ def drive_file_exists(file_name: str, cfg: dict) -> bool:
     if not drive_cfg.get("enabled", False):
         return False
 
-    folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID") or drive_cfg.get("folder_id")
+    folder_id = (os.environ.get("DAILY_REPORT_DRIVE_FOLDER_ID") or os.environ.get("GOOGLE_DRIVE_FOLDER_ID") or drive_cfg.get("folder_id"))
     if not folder_id:
         return False
 
@@ -2102,7 +2078,7 @@ def upload_report_image_to_drive(image_path: Path, today: str, cfg: dict) -> str
     if not drive_cfg.get("enabled", False):
         return None
 
-    folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID") or drive_cfg.get("folder_id")
+    folder_id = (os.environ.get("DAILY_REPORT_DRIVE_FOLDER_ID") or os.environ.get("GOOGLE_DRIVE_FOLDER_ID") or drive_cfg.get("folder_id"))
     if not folder_id:
         print("⚠️  未設定 Google Drive folder_id，跳過上傳圖片")
         return None
@@ -2157,20 +2133,22 @@ def upload_report_image_to_drive(image_path: Path, today: str, cfg: dict) -> str
 
 # ── 發送 Email ───────────────────────────────────────────────
 def send_email(cfg: dict, html: str, today: str) -> bool:
-    gmail_pass = os.environ.get("GMAIL_PASSWORD", "")
-    if not gmail_pass:
-        print("⚠️  未設定 GMAIL_PASSWORD（GitHub Secret），跳過發信")
+    ec = cfg["email"]
+    smtp_username = os.environ.get("SMTP_USERNAME") or ec.get("from", "")
+    smtp_password = os.environ.get("SMTP_PASSWORD", "")
+    email_to = os.environ.get("REPORT_EMAIL_TO") or ec.get("to", "")
+    if not (smtp_username and smtp_password and email_to):
+        print("⚠️  未設定 SMTP_USERNAME / SMTP_PASSWORD / REPORT_EMAIL_TO，跳過發信")
         return False
-    ec  = cfg["email"]
     msg = MIMEMultipart("alternative")
     msg["Subject"] = ec["subject"].format(date=today)
-    msg["From"]    = ec["from"]
-    msg["To"]      = ec["to"]
+    msg["From"] = smtp_username
+    msg["To"] = email_to
     msg.attach(MIMEText(html, "html", "utf-8"))
     s = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30)
     try:
-        s.login(ec["from"], gmail_pass)
-        s.sendmail(ec["from"], ec["to"], msg.as_string())
+        s.login(smtp_username, smtp_password)
+        s.sendmail(smtp_username, email_to, msg.as_string())
         s.quit()
     except Exception:
         s.close()

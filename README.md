@@ -73,17 +73,19 @@ python stock_market_tracking_system.py
 
 執行後會產生 email_preview.html。
 
-如果本機沒有設定 GMAIL_PASSWORD，程式會跳過寄信，但仍會產生 HTML 預覽。
+如果本機沒有設定 SMTP_USERNAME / SMTP_PASSWORD / REPORT_EMAIL_TO，程式會跳過寄信，但仍會產生 HTML 預覽。
 
 ## GitHub Actions
 
 GitHub Actions 設定為每天台灣時間下午 16:00 執行一次，16:15 備援觸發；程式會避免同日重複寄送。
 
-寄信需要在 GitHub repo 的 Secrets 設定：
+寄信需要在 GitHub Organization 或 repo 的 Secrets 設定：
 
-GMAIL_PASSWORD
+SMTP_USERNAME
+SMTP_PASSWORD
+REPORT_EMAIL_TO
 
-Google Drive 上傳需要在 GitHub repo 的 Secrets / Variables 設定 OAuth 與目標資料夾。
+Google Drive 上傳需要在 GitHub Organization 或 repo 的 Secrets 設定 GOOGLE_OAUTH_CLIENT_ID、GOOGLE_OAUTH_CLIENT_SECRET、GOOGLE_OAUTH_REFRESH_TOKEN 與 DAILY_REPORT_DRIVE_FOLDER_ID。
 
 ## 給新 Codex 聊天的接手提示
 
