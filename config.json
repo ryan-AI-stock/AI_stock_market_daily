@@ -132,7 +132,25 @@
 
   "ma_periods": {"short": 10, "mid": 20, "long": 60},
 
-  "market_events_window_days": 14,
+  "market_events_lookback_days": 5,
+  "market_events_lookahead_days": 30,
+  "auto_market_events": {
+    "enabled": true,
+    "lookback_days": 5,
+    "lookahead_days": 30,
+    "news_lookback_days": 14,
+    "max_items": 6,
+    "max_items_per_query": 2,
+    "queries": [
+      "台股 未來一個月 重大事件 行事曆",
+      "台股 本週 下週 重大事件 外資 匯率",
+      "台股 法說會 營收 公告 台積電 聯發科",
+      "Fed FOMC CPI PCE 利率 台股 科技股",
+      "美中 關稅 晶片管制 台股 半導體",
+      "NVIDIA 財報 AI 半導體 台股",
+      "原油 OPEC 中東 戰爭 台股 通膨"
+    ]
+  },
   "auto_news": {
     "enabled": true,
     "lookback_days": 3,
