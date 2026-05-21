@@ -2530,7 +2530,8 @@ def upload_report_file_to_drive(file_path: Path, today: str, cfg: dict,
 
 
 def upload_file_to_drive(file_path: Path, folder_id: str, mime_type: str,
-                         file_name: str | None = None, make_public: bool = False) -> str | None:
+                         file_name: str | None = None, make_public: bool = False,
+                         file_id: str | None = None) -> str | None:
     if not folder_id:
         return None
     try:
@@ -2548,26 +2549,42 @@ def upload_file_to_drive(file_path: Path, folder_id: str, mime_type: str,
     try:
         print(f"使用 Google Drive {auth_mode} 憑證上傳 {name}")
         media = MediaFileUpload(str(file_path), mimetype=mime_type, resumable=False)
-        query = (
-            f"'{folder_id}' in parents and "
-            f"name = '{name}' and "
-            "trashed = false"
-        )
-        existing = service.files().list(
-            q=query,
-            fields="files(id,name,webViewLink)",
-            supportsAllDrives=True,
-            includeItemsFromAllDrives=True,
-        ).execute().get("files", [])
+        if file_id:
+            try:
+                uploaded = service.files().update(
+                    fileId=file_id,
+                    body={"name": name},
+                    media_body=media,
+                    fields="id,name,webViewLink",
+                    supportsAllDrives=True,
+                ).execute()
+            except Exception as exc:
+                print(f"⚠️  固定檔案 ID 更新失敗，改用檔名搜尋或新建：{exc}")
+                uploaded = None
+        else:
+            uploaded = None
 
-        if existing:
+        if uploaded is None:
+            query = (
+                f"'{folder_id}' in parents and "
+                f"name = '{name}' and "
+                "trashed = false"
+            )
+            existing = service.files().list(
+                q=query,
+                fields="files(id,name,webViewLink)",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            ).execute().get("files", [])
+
+        if uploaded is None and existing:
             uploaded = service.files().update(
                 fileId=existing[0]["id"],
                 media_body=media,
                 fields="id,name,webViewLink",
                 supportsAllDrives=True,
             ).execute()
-        else:
+        elif uploaded is None:
             uploaded = service.files().create(
                 body={"name": name, "parents": [folder_id]},
                 media_body=media,
@@ -2626,7 +2643,8 @@ def upload_public_report_file(fixed_path: Path | None, cfg: dict) -> str | None:
     make_public = bool(public_cfg.get("make_public", True))
     fixed_name = public_cfg.get("fixed_file_name") or fixed_path.name
     mime_type = "application/pdf" if fixed_path.suffix.lower() == ".pdf" else "text/html"
-    return upload_file_to_drive(fixed_path, folder_id, mime_type, fixed_name, make_public)
+    fixed_file_id = os.environ.get("PUBLIC_REPORT_DRIVE_FILE_ID") or public_cfg.get("fixed_file_id")
+    return upload_file_to_drive(fixed_path, folder_id, mime_type, fixed_name, make_public, fixed_file_id)
 
 
 # ── 發送 Email ───────────────────────────────────────────────

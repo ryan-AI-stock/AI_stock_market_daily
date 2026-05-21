@@ -75,6 +75,8 @@ BIAS60 用來判斷中期過熱或超跌。接近過熱時，買進分數會降�
 
 LINE 官方帳號關鍵字回覆只需要設定固定 PDF 的分享連結。每日更新時，程式會覆蓋同名檔案，網址不需要每天手動更改。
 
+注意：Google Drive 分享網址綁定的是檔案 ID，不是檔名。不要手動刪除「每日台股報告.pdf」這個固定檔；程式會更新同一個檔案內容。若固定檔被刪除後重新建立，網址會改變，需要更新 config.json 的 public_report.fixed_file_id 或重新設定 LINE 連結。
+
 ## 顏色規則
 
 多數地方採用台股閱讀習慣：
@@ -104,6 +106,8 @@ GitHub Actions 設定為每天台灣時間下午 16:00 執行一次，16:15 備�
 Google Drive 上傳需要在 GitHub Organization 或 repo 的 Secrets 設定 GOOGLE_OAUTH_CLIENT_ID、GOOGLE_OAUTH_CLIENT_SECRET、GOOGLE_OAUTH_REFRESH_TOKEN 與 DAILY_REPORT_DRIVE_FOLDER_ID。
 
 免費觀眾固定報告頁可用 Organization / repo Variables 設定 PUBLIC_REPORT_DRIVE_FOLDER_ID；若未設定，會使用 config.json 的 public_report.folder_id。
+
+若要覆蓋 config.json 的固定檔案 ID，可設定 PUBLIC_REPORT_DRIVE_FILE_ID。
 
 ## 給新 Codex 聊天的接手提示
 
