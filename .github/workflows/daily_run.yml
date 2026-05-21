@@ -7,6 +7,15 @@ on:
     # 台灣時間 16:15 = UTC 08:15，備援觸發；程式會檢查同日是否已產出，避免重複寄送
     - cron: '15 8 * * *'
   workflow_dispatch:          # 允許手動在網頁上觸發
+    inputs:
+      force_run:
+        description: '忽略同日已產出檢查，強制重新產生並寄送'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 jobs:
   run-signal:
@@ -39,4 +48,5 @@ jobs:
           GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
           DAILY_REPORT_DRIVE_FOLDER_ID: ${{ secrets.DAILY_REPORT_DRIVE_FOLDER_ID }}
           PUBLIC_REPORT_DRIVE_FOLDER_ID: ${{ vars.PUBLIC_REPORT_DRIVE_FOLDER_ID }}
+          FORCE_RUN_REPORT: ${{ github.event.inputs.force_run || 'false' }}
         run: python stock_market_tracking_system.py

@@ -2554,7 +2554,10 @@ def main():
     today = now_tw.strftime("%Y-%m-%d")
     print(f"[{now_tw.strftime('%Y-%m-%d %H:%M')}] 開始分析，共 {len(cfg['watchlist'])} 檔")
     date_key = today.replace("-", "")
-    if drive_file_exists(f"{date_key}_01.png", cfg):
+    force_run = os.environ.get("FORCE_RUN_REPORT", "").strip().lower() in ("1", "true", "yes", "y")
+    if force_run:
+        print("  手動強制執行：略過同日已產出檢查")
+    if not force_run and drive_file_exists(f"{date_key}_01.png", cfg):
         return
 
     macro = fetch_market_context()
