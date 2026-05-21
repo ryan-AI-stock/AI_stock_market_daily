@@ -2287,6 +2287,33 @@ def render_report_image(html_path: Path, today: str, cfg: dict, output_name: str
         return None
 
 
+def render_report_pdf(html_path: Path, output_name: str) -> Path | None:
+    pdf_path = Path(__file__).parent / output_name
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception as exc:
+        print(f"⚠️  未安裝 Playwright，跳過產生 PDF：{exc}")
+        return None
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(args=["--no-sandbox"])
+            page = browser.new_page(viewport={"width": 900, "height": 1200}, device_scale_factor=1)
+            page.goto(html_path.resolve().as_uri(), wait_until="networkidle")
+            page.pdf(
+                path=str(pdf_path),
+                print_background=True,
+                prefer_css_page_size=False,
+                width="900px",
+                margin={"top": "18px", "right": "18px", "bottom": "18px", "left": "18px"},
+            )
+            browser.close()
+        return pdf_path
+    except Exception as exc:
+        print(f"⚠️  產生報告 PDF 失敗：{exc}")
+        return None
+
+
 def _build_google_drive_credentials():
     scopes = ["https://www.googleapis.com/auth/drive"]
     refresh_token = os.environ.get("GOOGLE_OAUTH_REFRESH_TOKEN", "").strip()
@@ -2359,14 +2386,16 @@ def drive_file_exists(file_name: str, cfg: dict) -> bool:
         print(f"⚠️  檢查 Google Drive 既有檔案失敗，繼續執行避免漏寄：{exc}")
     return False
 
-def upload_report_image_to_drive(image_path: Path, today: str, cfg: dict) -> str | None:
+def upload_report_file_to_drive(file_path: Path, today: str, cfg: dict,
+                                file_name: str | None = None,
+                                mime_type: str | None = None) -> str | None:
     drive_cfg = cfg.get("drive_report", {})
     if not drive_cfg.get("enabled", False):
         return None
 
     folder_id = os.environ.get("DAILY_REPORT_DRIVE_FOLDER_ID") or drive_cfg.get("folder_id")
     if not folder_id:
-        print("⚠️  未設定 Google Drive folder_id，跳過上傳圖片")
+        print("⚠️  未設定 Google Drive folder_id，跳過上傳報告檔")
         return None
 
     try:
@@ -2377,16 +2406,17 @@ def upload_report_image_to_drive(image_path: Path, today: str, cfg: dict) -> str
 
     service, auth_mode = build_google_drive_service()
     if not service:
-        print("⚠️  未設定 Google OAuth 或 service account 憑證，已保留本機圖片但跳過上傳")
+        print("⚠️  未設定 Google OAuth 憑證，已保留本機報告檔但跳過上傳")
         return None
 
     try:
-        print(f"使用 Google Drive {auth_mode} 憑證上傳圖片")
-        file_name = image_path.name
-        media = MediaFileUpload(str(image_path), mimetype="image/png", resumable=False)
+        print(f"使用 Google Drive {auth_mode} 憑證上傳自用報告")
+        upload_name = file_name or file_path.name
+        upload_mime = mime_type or ("application/pdf" if file_path.suffix.lower() == ".pdf" else "image/png")
+        media = MediaFileUpload(str(file_path), mimetype=upload_mime, resumable=False)
         query = (
             f"'{folder_id}' in parents and "
-            f"name = '{file_name}' and "
+            f"name = '{upload_name}' and "
             "trashed = false"
         )
         existing = service.files().list(
@@ -2405,7 +2435,7 @@ def upload_report_image_to_drive(image_path: Path, today: str, cfg: dict) -> str
             ).execute()
         else:
             uploaded = service.files().create(
-                body={"name": file_name, "parents": [folder_id]},
+                body={"name": upload_name, "parents": [folder_id]},
                 media_body=media,
                 fields="id,name,webViewLink",
                 supportsAllDrives=True,
@@ -2480,23 +2510,24 @@ def upload_file_to_drive(file_path: Path, folder_id: str, mime_type: str,
         return None
 
 
-def save_public_report_html(html: str, today: str, cfg: dict) -> tuple[Path, Path] | tuple[None, None]:
+def save_public_report_file(html: str, today: str, cfg: dict) -> Path | None:
     public_cfg = cfg.get("public_report", {})
     if not public_cfg.get("enabled", False):
-        return None, None
+        return None
     out_dir = Path(__file__).parent / "public_report"
     out_dir.mkdir(exist_ok=True)
-    fixed_name = public_cfg.get("fixed_file_name") or public_cfg.get("latest_file_name", "每日台股報告.html")
-    archive_prefix = public_cfg.get("archive_file_prefix", Path(fixed_name).stem)
+    html_path = out_dir / "每日台股報告_暫存.html"
+    html_path.write_text(html, encoding="utf-8")
+    fmt = str(public_cfg.get("format", "pdf")).lower()
+    fixed_name = public_cfg.get("fixed_file_name") or "每日台股報告.pdf"
+    if fmt == "pdf":
+        return render_report_pdf(html_path, str(out_dir / fixed_name))
     fixed_path = out_dir / fixed_name
-    archive_path = out_dir / f"{archive_prefix}_{today.replace('-', '')}.html"
     fixed_path.write_text(html, encoding="utf-8")
-    archive_path.write_text(html, encoding="utf-8")
-    return fixed_path, archive_path
+    return fixed_path
 
 
-def upload_public_report_html(fixed_path: Path | None, archive_path: Path | None,
-                              today: str, cfg: dict) -> str | None:
+def upload_public_report_file(fixed_path: Path | None, cfg: dict) -> str | None:
     public_cfg = cfg.get("public_report", {})
     if not public_cfg.get("enabled", False) or not fixed_path:
         return None
@@ -2511,15 +2542,9 @@ def upload_public_report_html(fixed_path: Path | None, archive_path: Path | None
         return None
 
     make_public = bool(public_cfg.get("make_public", True))
-    fixed_name = public_cfg.get("fixed_file_name") or public_cfg.get("latest_file_name", "每日台股報告.html")
-    fixed_link = upload_file_to_drive(
-        fixed_path, folder_id, "text/html", fixed_name, make_public
-    )
-    if archive_path:
-        upload_file_to_drive(
-            archive_path, folder_id, "text/html", archive_path.name, make_public
-        )
-    return fixed_link
+    fixed_name = public_cfg.get("fixed_file_name") or fixed_path.name
+    mime_type = "application/pdf" if fixed_path.suffix.lower() == ".pdf" else "text/html"
+    return upload_file_to_drive(fixed_path, folder_id, mime_type, fixed_name, make_public)
 
 
 # ── 發送 Email ───────────────────────────────────────────────
@@ -2557,7 +2582,7 @@ def main():
     force_run = os.environ.get("FORCE_RUN_REPORT", "").strip().lower() in ("1", "true", "yes", "y")
     if force_run:
         print("  手動強制執行：略過同日已產出檢查")
-    if not force_run and drive_file_exists(f"{date_key}_01.png", cfg):
+    if not force_run and drive_file_exists(f"每日台股報告_{date_key}.pdf", cfg):
         return
 
     macro = fetch_market_context()
@@ -2610,7 +2635,7 @@ def main():
     html = build_email_html(results, today, cfg, macro, news_items, market_events)
     preview_path = save_email_preview(html)
     print(f"\n已產生 Email 預覽：{preview_path}")
-    public_latest, public_archive = save_public_report_html(html, today, cfg)
+    public_report_path = save_public_report_file(html, today, cfg)
 
     print(f"\n發送 Email 至 {cfg['email']['to']} ...")
     try:
@@ -2619,24 +2644,18 @@ def main():
     except Exception as e:
         print(f"❌ Email 失敗：{e}")
 
-    public_link = upload_public_report_html(public_latest, public_archive, today, cfg)
+    public_link = upload_public_report_file(public_report_path, cfg)
     if public_link:
         print(f"已更新免費觀眾固定報告頁：{public_link}")
 
-    social_pages = save_social_report_pages(
-        build_social_report_pages(results, today, cfg, macro, news_items, market_events), today
-    )
-    date_key = today.replace("-", "")
-    for idx, social_page in enumerate(social_pages, start=1):
-        image_name = f"{date_key}_{idx:02d}.png"
-        image_path = render_report_image(
-            social_page, today, cfg, output_name=image_name, full_page=False, height=1920
+    backup_pdf = render_report_pdf(preview_path, f"每日台股報告_{date_key}.pdf")
+    if backup_pdf:
+        print(f"已產生自用備份 PDF：{backup_pdf}")
+        drive_link = upload_report_file_to_drive(
+            backup_pdf, today, cfg, file_name=backup_pdf.name, mime_type="application/pdf"
         )
-        if image_path:
-            print(f"已產生社群分享圖片：{image_path}")
-            drive_link = upload_report_image_to_drive(image_path, today, cfg)
-            if drive_link:
-                print(f"已上傳社群分享圖片至 Google Drive：{drive_link}")
+        if drive_link:
+            print(f"已上傳自用備份 PDF 至 Google Drive：{drive_link}")
 
 
 

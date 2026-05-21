@@ -221,8 +221,8 @@
   "public_report": {
     "enabled": true,
     "folder_id": "1qkuHGyvnlGKoY-LpYb39-LKVxF5i-0sD",
-    "fixed_file_name": "每日台股報告.html",
-    "archive_file_prefix": "每日台股報告",
+    "fixed_file_name": "每日台股報告.pdf",
+    "format": "pdf",
     "make_public": true
   }
 }
