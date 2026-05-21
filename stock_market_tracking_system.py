@@ -2056,6 +2056,111 @@ def _public_event_rows(cfg: dict | None, today: str, market_events: list | None,
     return rows or "<div class='muted'>近期無高關聯重大事件。</div>"
 
 
+def _public_signal_lamp(result: dict) -> str:
+    level = str(result.get("level", ""))
+    if "OVERHEATED" in level:
+        color = DOWN_COLOR
+    elif "BUY_STRONG" in level:
+        color = "#d32f2f"
+    elif "BUY_MID" in level:
+        color = "#f39c12"
+    elif "BUY_WEAK" in level:
+        color = "#f1c40f"
+    elif "BUY_NOTICE" in level:
+        color = "#3498db"
+    elif "SELL_STRONG" in level:
+        color = "#00897b"
+    elif "SELL_MID" in level:
+        color = "#8e44ad"
+    elif "SELL_WEAK" in level:
+        color = "#9aa8a8"
+    else:
+        color = NEUTRAL_COLOR
+    return f"<span class='lamp' style='--lamp:{color}'></span>"
+
+
+def _public_chip(text: str, color: str) -> str:
+    return f"<span class='chip' style='--c:{color}'>{html_lib.escape(_social_short_text(text, 18))}</span>"
+
+
+def _public_signal_text(value: str, limit: int = 24) -> str:
+    text = re.sub(r"^[\s🔴🟠🟡🔵🟢🟣⚪🔥❄️✅⚠️]+", "", str(value or "")).strip()
+    return _social_short_text(text, limit)
+
+
+def _public_key_chips(result: dict, limit: int = 3) -> str:
+    priority = {
+        "季線支撐位置": 110,
+        "估值與乖離": 105,
+        "趨勢環境": 100,
+        "三大法人": 95,
+        "MACD": 90,
+        "KD": 80,
+        "基本面趨勢": 75,
+        "利率環境": 70,
+        "OBV": 65,
+        "量能趨勢": 60,
+    }
+    candidates = []
+    for label, value, color, note in result.get("items", []):
+        buy, sell = _social_score_impact(str(note))
+        if buy <= 0 and sell <= 0 and label not in ("趨勢環境", "季線支撐位置", "估值與乖離", "三大法人", "MACD"):
+            continue
+        candidates.append((max(buy, sell), priority.get(label, 0), str(value), str(color)))
+    candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    chips = "".join(_public_chip(value, color) for _score, _priority, value, color in candidates[:limit])
+    return chips or _public_chip("訊號中性", NEUTRAL_COLOR)
+
+
+def _public_action_group(results: list, predicate) -> str:
+    names = [name for name, _ticker, r in results if predicate(r)]
+    return "、".join(names) if names else "無"
+
+
+def _public_indicator_tile(title: str, value: str, color: str, note: str = "", limit: int = 18) -> str:
+    note_text = _social_short_text(str(note).split("｜")[0], 18) if note else ""
+    return (
+        f"<div class='tile'>"
+        f"<div class='tile-title'>{html_lib.escape(title)}</div>"
+        f"<div class='tile-value' style='color:{color}'>{html_lib.escape(_social_short_text(value, limit))}</div>"
+        f"<div class='tile-note'>{html_lib.escape(note_text)}</div>"
+        f"</div>"
+    )
+
+
+def _public_stock_tiles(result: dict) -> str:
+    regime = result.get("regime", {})
+    b60 = result.get("b60", {})
+    tiles = [
+        _public_indicator_tile(
+            "市場狀態",
+            regime.get("label", "-"),
+            regime.get("color", NEUTRAL_COLOR),
+            f"買 {result.get('effective_buy', 0):.0f} / 賣 {result.get('effective_sell', 0):.0f}",
+            14,
+        ),
+        _public_indicator_tile(
+            "BIAS60",
+            b60.get("label", "-"),
+            b60.get("color", NEUTRAL_COLOR),
+            f"{b60.get('bias60', 0):.1f}%",
+            16,
+        ),
+    ]
+    labels = [
+        ("季線位置", "季線支撐位置", 16),
+        ("估值乖離", "估值與乖離", 16),
+        ("趨勢", "趨勢環境", 16),
+        ("法人", "三大法人", 16),
+        ("MACD", "MACD", 16),
+        ("KD", "KD", 16),
+    ]
+    for title, label, limit in labels:
+        value, color, note = _social_item_detail(result, label)
+        tiles.append(_public_indicator_tile(title, value, color, note, limit))
+    return "".join(tiles)
+
+
 def build_public_report_html(results: list, today: str, cfg: dict | None = None,
                              macro: dict | None = None, news_items: list | None = None,
                              market_events: list | None = None) -> str:
@@ -2069,43 +2174,79 @@ def build_public_report_html(results: list, today: str, cfg: dict | None = None,
     market_plan = market.get("trade_plan", {})
     css = """
     <style>
-      @page{size:A4;margin:12mm} *{box-sizing:border-box}
-      body{font-family:Arial,'Noto Sans TC',sans-serif;color:#203040;margin:0;background:#fff;font-size:13px;line-height:1.45}
-      .cover{background:#243447;color:#fff;border-radius:14px;padding:22px 24px;margin-bottom:14px}
-      h1{font-size:30px;margin:0 0 6px}.sub{font-size:15px;opacity:.85}.section{border:1px solid #dfe6ee;border-radius:12px;padding:14px 16px;margin-bottom:12px;break-inside:avoid}
-      .section h2{font-size:19px;margin:0 0 10px;color:#243447}.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}.metric{background:#f3f6f9;border-radius:10px;padding:10px}.label{font-size:12px;color:#778391}.value{font-size:21px;font-weight:800;margin-top:3px}
-      .summary{border-left:6px solid var(--c);background:#fbfcfd;border-radius:10px;padding:10px 12px;margin-top:10px}.summary-main{font-size:17px;font-weight:800;color:var(--c)}.summary-sub{color:#4f5f70;margin-top:4px}
-      table{width:100%;border-collapse:collapse;font-size:12px}th{background:#eef3f7;color:#243447;text-align:left;padding:8px;border-bottom:1px solid #dfe6ee}td{padding:8px;border-bottom:1px solid #e8eef3;vertical-align:top}.stock{font-weight:800;font-size:14px}.badge{display:inline-block;color:#fff;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:800}.op{font-weight:800}.reason{color:#526273;font-size:11.5px}.score{white-space:nowrap;font-weight:800}.cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}.news-item,.event-item{border-left:5px solid #f39c12;background:#fbfcfd;border-radius:8px;padding:8px 10px;margin-bottom:7px}.event-item{border-left-color:#c0392b}.news-title,.event-title{font-weight:800}.news-meta,.event-meta,.muted{color:#778391;font-size:11.5px;margin-top:3px}.disclaimer{font-size:11px;color:#778391;text-align:center;margin-top:10px}
+      @page{size:900px 1260px;margin:0} *{box-sizing:border-box}
+      body{font-family:Arial,'Noto Sans TC',sans-serif;color:#203040;margin:0;background:#fff;font-size:14px;line-height:1.35}
+      .page{width:900px;height:1260px;padding:34px 42px;background:#f6f8fb;page-break-after:always;overflow:hidden}.page:last-child{page-break-after:auto}
+      .cover{background:#243447;color:#fff;border-radius:14px;padding:20px 24px;margin-bottom:14px}
+      h1{font-size:31px;margin:0 0 5px}.sub{font-size:15px;opacity:.86}
+      .section{background:#fff;border:1px solid #dfe6ee;border-radius:13px;padding:15px 17px;margin-bottom:13px;box-shadow:0 2px 8px rgba(31,45,61,.04)}
+      .section h2{font-size:20px;margin:0 0 10px;color:#243447}.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}.metric{background:#f0f3f6;border-radius:10px;padding:12px}.label{font-size:12px;color:#778391}.value{font-size:25px;font-weight:900;margin-top:4px}
+      .summary{border-left:8px solid var(--c);background:#fbfcfd;border-radius:11px;padding:11px 13px;margin-top:10px}.summary-main{display:flex;align-items:center;gap:8px;font-size:18px;font-weight:900;color:var(--c)}
+      .lamp{display:inline-block;width:13px;height:13px;border-radius:50%;background:var(--lamp);box-shadow:0 0 0 4px rgba(0,0,0,.05);flex:0 0 auto}
+      .groups{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}.group{background:#f7f9fb;border-radius:12px;padding:12px;border-top:6px solid var(--c);min-height:110px}.group-title{font-size:16px;font-weight:900;color:var(--c)}.group-list{font-size:17px;font-weight:900;margin-top:8px;line-height:1.45}
+      .cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}.news-item,.event-item{border-left:6px solid #f39c12;background:#fbfcfd;border-radius:9px;padding:10px 11px;margin-bottom:8px;min-height:62px}.event-item{border-left-color:#c0392b}.news-title,.event-title{font-weight:900;font-size:14px;line-height:1.35}.news-meta,.event-meta,.muted{color:#778391;font-size:12px;margin-top:3px}
+      .summary-cards{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:repeat(4,1fr);gap:11px;height:1050px}.card{border:1px solid #dfe6ee;border-left:8px solid var(--c);border-radius:14px;padding:14px;background:#fff;overflow:hidden;break-inside:avoid;display:flex;flex-direction:column}.head{display:flex;justify-content:space-between;gap:10px}.name{font-size:20px;font-weight:900}.code{font-size:12px;color:#7b8794}.price{font-size:20px;font-weight:900}.badge{display:inline-flex;align-items:center;gap:8px;background:var(--c);color:#fff;border-radius:999px;padding:6px 11px;font-size:14px;font-weight:900;margin:9px 0 8px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.badge .lamp{box-shadow:none;border:2px solid rgba(255,255,255,.65)}.op{font-size:18px;font-weight:900;line-height:1.25}.score{font-size:13px;font-weight:900;color:#526273;text-align:right;white-space:nowrap}.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.chip{background:var(--c);color:#fff;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:900}.mini-row{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:auto;padding-top:8px}.mini{background:#f2f5f7;border-radius:9px;padding:7px 8px}.mini-label{font-size:11px;color:#7b8794}.mini-value{font-size:13px;font-weight:900;margin-top:2px}
+      .detail-grid{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:12px;height:1050px}.detail-card{border:1px solid #dfe6ee;border-left:8px solid var(--c);border-radius:14px;background:#fff;padding:14px;overflow:hidden}.detail-title{display:flex;justify-content:space-between;gap:10px;margin-bottom:9px}.detail-name{font-size:22px;font-weight:900}.detail-meta{color:#778391;font-size:12px}.tile-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}.tile{background:#f2f5f7;border-radius:10px;padding:8px 9px;min-height:69px;overflow:hidden}.tile-title{font-size:12px;color:#7b8794}.tile-value{font-size:15px;font-weight:900;line-height:1.2;margin-top:2px}.tile-note{font-size:11px;color:#8a96a3;line-height:1.2;margin-top:3px}.footer{font-size:12px;color:#778391;text-align:center;margin-top:8px}
     </style>
     """
-    rows = ""
+    summary_cards = ""
+    detail_pages = []
     for name, ticker, r in results:
         trade_plan = r.get("trade_plan", {})
-        reason = _social_reason(r, 92)
+        regime = r.get("regime", {})
+        b60 = r.get("b60", {})
         code = ticker.replace(".TW", "").replace(".tw", "")
-        rows += (
-            f"<tr>"
-            f"<td><div class='stock'>{html_lib.escape(name)}</div><div class='muted'>{html_lib.escape(code)}</div></td>"
-            f"<td><span class='badge' style='background:{r.get('border', NEUTRAL_COLOR)}'>{html_lib.escape(_social_short_text(r.get('summary',''), 24))}</span></td>"
-            f"<td class='op'>{html_lib.escape(trade_plan.get('headline','觀察'))}</td>"
-            f"<td class='score'>買 {r.get('effective_buy',0):.0f}<br>賣 {r.get('effective_sell',0):.0f}</td>"
-            f"<td class='reason'>{reason}</td>"
-            f"</tr>"
+        summary_cards += (
+            f"<div class='card' style='--c:{r.get('border', NEUTRAL_COLOR)}'>"
+            f"<div class='head'><div><div class='name'>{html_lib.escape(name)}</div><div class='code'>{html_lib.escape(code)}</div></div><div class='price'>{r.get('close',0):.2f}</div></div>"
+            f"<div class='badge'>{_public_signal_lamp(r)} {html_lib.escape(_public_signal_text(r.get('summary',''), 22))}</div>"
+            f"<div class='head'><div class='op'>{html_lib.escape(trade_plan.get('headline','觀察'))}</div><div class='score'>買 {r.get('effective_buy',0):.0f} / 賣 {r.get('effective_sell',0):.0f}</div></div>"
+            f"<div class='chips'>{_public_key_chips(r)}</div>"
+            f"<div class='mini-row'><div class='mini'><div class='mini-label'>市場狀態</div><div class='mini-value' style='color:{regime.get('color', NEUTRAL_COLOR)}'>{html_lib.escape(regime.get('label','-'))}</div></div>"
+            f"<div class='mini'><div class='mini-label'>BIAS60</div><div class='mini-value' style='color:{b60.get('color', NEUTRAL_COLOR)}'>{b60.get('bias60',0):.1f}%</div></div></div>"
+            f"</div>"
         )
+    for start in range(0, len(results), 4):
+        detail_cards = ""
+        for name, ticker, r in results[start:start + 4]:
+            code = ticker.replace(".TW", "").replace(".tw", "")
+            trade_plan = r.get("trade_plan", {})
+            detail_cards += (
+                f"<div class='detail-card' style='--c:{r.get('border', NEUTRAL_COLOR)}'>"
+                f"<div class='detail-title'><div><div class='detail-name'>{html_lib.escape(name)}</div><div class='detail-meta'>{html_lib.escape(code)}｜{html_lib.escape(trade_plan.get('headline','觀察'))}</div></div><div class='score'>買 {r.get('effective_buy',0):.0f}<br>賣 {r.get('effective_sell',0):.0f}</div></div>"
+                f"<div class='badge'>{_public_signal_lamp(r)} {html_lib.escape(_public_signal_text(r.get('summary',''), 24))}</div>"
+                f"<div class='tile-grid'>{_public_stock_tiles(r)}</div>"
+                f"</div>"
+            )
+        page_no = 3 + len(detail_pages)
+        detail_pages.append(
+            f"<div class='page'><div class='cover'><h1>關鍵指標雷達 {page_no - 2}/2</h1><div class='sub'>{date_text}｜每檔保留 8 個影響漲跌的核心指標</div></div>"
+            f"<div class='detail-grid'>{detail_cards}</div>"
+            f"<div class='footer'>重點看訊號、買賣分數、季線位置、趨勢、法人與動能，不用讀長段落。</div></div>"
+        )
+    buy_group = _public_action_group(results, lambda r: str(r.get("trade_plan", {}).get("headline", "")).startswith("買進"))
+    hold_group = _public_action_group(results, lambda r: "觀察" in str(r.get("trade_plan", {}).get("headline", "")))
+    risk_group = _public_action_group(results, lambda r: "禁止" in str(r.get("trade_plan", {}).get("headline", "")) or str(r.get("level", "")).startswith(("SELL", "OVERHEATED")))
     return (
         f"<!DOCTYPE html><html><head><meta charset='utf-8'>{css}</head><body>"
-        f"<div class='cover'><h1>被AI研究社｜每日台股分析</h1><div class='sub'>{date_text} 收盤後整理｜免費版摘要 PDF</div></div>"
-        f"<div class='section'><h2>今日市場快照</h2><div class='grid3'>"
+        f"<div class='page'><div class='cover'><h1>被AI研究社｜每日台股分析</h1><div class='sub'>{date_text} 收盤後整理｜免費版重點 PDF</div></div>"
+        f"<div class='section'><h2>市場快照</h2><div class='grid3'>"
         f"<div class='metric'><div class='label'>台股加權</div><div class='value'>{market.get('close',0):.2f}</div></div>"
         f"<div class='metric'><div class='label'>美元/台幣</div><div class='value'>{fx_text}</div></div>"
         f"<div class='metric'><div class='label'>美10年債殖利率</div><div class='value'>{rates_text}</div></div>"
         f"</div><div class='summary' style='--c:{market.get('border', NEUTRAL_COLOR)}'>"
-        f"<div class='summary-main'>{html_lib.escape(market.get('summary','無訊號'))}｜{html_lib.escape(market_plan.get('headline','觀察'))}</div>"
-        f"<div class='summary-sub'>{_social_reason(market, 120)}</div></div></div>"
-        f"<div class='section'><h2>8 檔追蹤標的摘要</h2><table><thead><tr><th>標的</th><th>訊號</th><th>操作</th><th>分數</th><th>重點說明</th></tr></thead><tbody>{rows}</tbody></table></div>"
-        f"<div class='section'><h2>消息與事件</h2><div class='cols'><div><h2>近期新聞</h2>{_public_news_rows(news_items)}</div><div><h2>重大事件</h2>{_public_event_rows(cfg, today, market_events)}</div></div></div>"
-        f"<div class='section'><h2>閱讀說明</h2><div class='muted'>完整細節保留於內部完整報告；免費版重點放在市場狀態、操作方向與主要原因。訊號為模型輔助判斷，不構成投資建議。</div></div>"
-        f"<div class='disclaimer'>本報告由自動化程式產生，僅供資訊整理與投資紀律參考。</div>"
+        f"<div class='summary-main'>{_public_signal_lamp(market)} {html_lib.escape(_public_signal_text(market.get('summary','無訊號'), 26))}｜{html_lib.escape(market_plan.get('headline','觀察'))}</div></div></div>"
+        f"<div class='section'><h2>今日操作分群</h2><div class='groups'>"
+        f"<div class='group' style='--c:{UP_COLOR}'><div class='group-title'>可小部位布局</div><div class='group-list'>{html_lib.escape(buy_group)}</div></div>"
+        f"<div class='group' style='--c:{NEUTRAL_COLOR}'><div class='group-title'>續抱 / 觀察</div><div class='group-list'>{html_lib.escape(hold_group)}</div></div>"
+        f"<div class='group' style='--c:{DOWN_COLOR}'><div class='group-title'>風險升高</div><div class='group-list'>{html_lib.escape(risk_group)}</div></div>"
+        f"</div></div>"
+        f"<div class='section'><h2>消息與事件</h2><div class='cols'><div><h2>近 3 天新聞</h2>{_public_news_rows(news_items, 6)}</div><div><h2>重大事件</h2>{_public_event_rows(cfg, today, market_events, 5)}</div></div></div>"
+        f"<div class='footer'>免費版保留每日重點、操作分群、消息事件與核心指標；模型結果僅供資訊整理，不構成投資建議。</div></div>"
+        f"<div class='page'><div class='cover'><h1>8 檔追蹤標的</h1><div class='sub'>{date_text}｜信號燈、操作方向、關鍵指標</div></div>"
+        f"<div class='summary-cards'>{summary_cards}</div>"
+        f"<div class='footer'>訊號燈與分數為模型輔助判斷；同一訊號連續出現時，不建議每天重複交易。</div></div>"
+        f"{''.join(detail_pages)}"
         f"</body></html>"
     )
 
@@ -2369,7 +2510,7 @@ def render_report_image(html_path: Path, today: str, cfg: dict, output_name: str
         return None
 
 
-def render_report_pdf(html_path: Path, output_name: str) -> Path | None:
+def render_report_pdf(html_path: Path, output_name: str, prefer_css_page_size: bool = False) -> Path | None:
     pdf_path = Path(__file__).parent / output_name
     try:
         from playwright.sync_api import sync_playwright
@@ -2382,13 +2523,17 @@ def render_report_pdf(html_path: Path, output_name: str) -> Path | None:
             browser = p.chromium.launch(args=["--no-sandbox"])
             page = browser.new_page(viewport={"width": 900, "height": 1200}, device_scale_factor=1)
             page.goto(html_path.resolve().as_uri(), wait_until="networkidle")
-            page.pdf(
-                path=str(pdf_path),
-                print_background=True,
-                prefer_css_page_size=False,
-                width="900px",
-                margin={"top": "18px", "right": "18px", "bottom": "18px", "left": "18px"},
-            )
+            pdf_options = {
+                "path": str(pdf_path),
+                "print_background": True,
+                "prefer_css_page_size": prefer_css_page_size,
+            }
+            if not prefer_css_page_size:
+                pdf_options.update({
+                    "width": "900px",
+                    "margin": {"top": "18px", "right": "18px", "bottom": "18px", "left": "18px"},
+                })
+            page.pdf(**pdf_options)
             browser.close()
         return pdf_path
     except Exception as exc:
@@ -2620,7 +2765,7 @@ def save_public_report_file(html: str, today: str, cfg: dict) -> Path | None:
     fmt = str(public_cfg.get("format", "pdf")).lower()
     fixed_name = public_cfg.get("fixed_file_name") or "每日台股報告.pdf"
     if fmt == "pdf":
-        return render_report_pdf(html_path, str(out_dir / fixed_name))
+        return render_report_pdf(html_path, str(out_dir / fixed_name), prefer_css_page_size=True)
     fixed_path = out_dir / fixed_name
     fixed_path.write_text(html, encoding="utf-8")
     return fixed_path
