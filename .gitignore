@@ -3,4 +3,5 @@ __pycache__/
 email_preview.html
 .yfinance_cache/
 social_report_*.html
+public_report/
 *.png

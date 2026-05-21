@@ -8,11 +8,11 @@ C:\Users\zergv\Documents\GitHub\AI_stock_market_daily
 
 GitHub repo：
 
-https://github.com/ryanhsu1983/AI_stock_market_daily
+https://github.com/ryan-AI-stock/AI_stock_market_daily
 
 目前主要分支：
 
-codex/restore-working-version
+main
 
 ## 主要檔案
 
@@ -24,9 +24,16 @@ codex/restore-working-version
 
 ## 目前模型
 
-使用加權分數模型，分別計算買進分數與賣出分數。主要指標包含趨勢、MACD、三大法人、KD、OBV、匯率、利率、量能。
+使用中長線安全投資取向的加權分數模型，分別計算買進分數與賣出分數。主要指標包含趨勢、季線支撐位置、三大法人、MACD、KD、OBV、量能、基本面趨勢、估值與乖離、匯率、利率。
 
-BIAS60 用來判斷中期過熱或超跌，不直接加分。當 BIAS60 顯示過熱時，買進分數會被鎖定為 0，避免追高。
+BIAS60 用來判斷中期過熱或超跌。接近過熱時，買進分數會降級；當 BIAS60 顯示過熱時，買進分數會被鎖定為 0，避免追高。
+
+新版模型特別加入：
+
+- 季線附近支撐反彈：多頭修正或盤整中，若股價靠近季線後反彈，可列入小部位試單條件。
+- 接近過熱降級：離季線過遠或接近 BIAS60 歷史高位時，即使趨勢強也不追價。
+- 法人合計方向優先：三大法人合計賣超時，不會只因部分法人買超就給買進分數。
+- 基本面與估值輔助：若資料源可取得，會納入營收/獲利成長、PE、PB 等中長線參考；資料不足時不硬湊分數。
 
 ## 報告呈現原則
 
@@ -52,6 +59,21 @@ BIAS60 用來判斷中期過熱或超跌，不直接加分。當 BIAS60 顯示�
 - 空頭：賣出訊號權重提高，買進訊號保守看待。
 
 同一等級訊號連續出現時，不建議每天重複交易。
+
+## 產出與發布
+
+程式會產生：
+
+- Email 完整報告。
+- 社群圖片，供自用 Google Drive 存檔。
+- 免費觀眾固定報告頁，輸出到 Google Drive 指定資料夾。
+
+免費觀眾固定報告頁目前設定為：
+
+- 固定檔名：每日台股報告.html
+- 歷史歸檔：每日台股報告_YYYYMMDD.html
+
+LINE 官方帳號關鍵字回覆只需要設定固定檔案的分享連結。每日更新時，程式會覆蓋同名檔案，網址不需要每天手動更改。
 
 ## 顏色規則
 
@@ -86,6 +108,8 @@ SMTP_PASSWORD
 REPORT_EMAIL_TO
 
 Google Drive 上傳需要在 GitHub Organization 或 repo 的 Secrets 設定 GOOGLE_OAUTH_CLIENT_ID、GOOGLE_OAUTH_CLIENT_SECRET、GOOGLE_OAUTH_REFRESH_TOKEN 與 DAILY_REPORT_DRIVE_FOLDER_ID。
+
+免費觀眾固定報告頁可用 Organization / repo Variables 設定 PUBLIC_REPORT_DRIVE_FOLDER_ID；若未設定，會使用 config.json 的 public_report.folder_id。
 
 ## 給新 Codex 聊天的接手提示
 

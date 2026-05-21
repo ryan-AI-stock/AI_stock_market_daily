@@ -1,7 +1,7 @@
 """
 每日股市訊號系統 v4
 ===================
-Repository : github.com/ryanhsu1983/AI_stock_market_daily
+Repository : github.com/ryan-AI-stock/AI_stock_market_daily
 v4 新增：每檔股票獨立 overrides 設定，支援個別化指標門檻與開關
 """
 
@@ -34,14 +34,17 @@ NEUTRAL_COLOR = "#95a5a6"
 TAIPEI_TZ = timezone(timedelta(hours=8))
 
 WEIGHTS = {
-    "trend": 25,
-    "macd": 20,
-    "institutional": 15,
-    "kd": 12,
-    "obv": 8,
-    "fx": 7,
-    "rates": 7,
+    "trend": 18,
+    "support_position": 10,
+    "institutional": 14,
+    "macd": 12,
+    "kd": 8,
+    "obv": 6,
     "vol": 6,
+    "fundamental": 8,
+    "valuation": 8,
+    "fx": 5,
+    "rates": 5,
 }
 
 SIGNAL_LEVELS = [
@@ -273,6 +276,39 @@ def fetch_market_context() -> dict:
     return context
 
 
+def fetch_fundamental_context(ticker: str) -> dict:
+    """
+    嘗試抓取中長線需要的基本面與估值資料。
+    yfinance 對台股欄位不一定完整；缺資料時不計分，避免用錯資料硬判斷。
+    """
+    if ticker.startswith("^"):
+        return {"success": False, "error": "指數不使用個股基本面估值", "data": {}}
+
+    try:
+        info = yf.Ticker(ticker).get_info()
+    except Exception as exc:
+        return {"success": False, "error": f"基本面資料失敗:{str(exc)[:80]}", "data": {}}
+
+    def pick_number(*keys):
+        for key in keys:
+            value = info.get(key)
+            if isinstance(value, (int, float)) and pd.notna(value):
+                return float(value)
+        return None
+
+    data = {
+        "trailing_pe": pick_number("trailingPE"),
+        "forward_pe": pick_number("forwardPE"),
+        "price_to_book": pick_number("priceToBook"),
+        "revenue_growth": pick_number("revenueGrowth"),
+        "earnings_growth": pick_number("earningsQuarterlyGrowth", "earningsGrowth"),
+        "profit_margin": pick_number("profitMargins"),
+    }
+    if all(value is None for value in data.values()):
+        return {"success": False, "error": "yfinance 未提供可用基本面欄位", "data": data}
+    return {"success": True, "error": "", "data": data}
+
+
 # ── 計算指標 ────────────────────────────────────────────────
 def calc_indicators(df: pd.DataFrame, scfg: dict) -> pd.DataFrame:
     ma  = scfg["ma_periods"]
@@ -452,7 +488,88 @@ def _parse_signal_level(level: str) -> tuple:
     return "HOLD", "NEUTRAL"
 
 
-def build_trade_plan(level: str, regime: dict, b60: dict, lev_warn: bool = False) -> dict:
+def _phrase_list(items: list[str], empty: str = "局部條件改善") -> str:
+    clean = [str(item) for item in items if item]
+    if not clean:
+        return empty
+    if len(clean) == 1:
+        return clean[0]
+    return "、".join(clean[:-1]) + "與" + clean[-1]
+
+
+def _market_move_context(regime_key: str, price_up: bool) -> str:
+    if regime_key == "STRONG_BULL":
+        return "大多頭上漲通常代表趨勢延續，但中長線加碼仍要避開過熱追價。" if price_up else \
+               "大多頭下跌不必直接等同趨勢反轉，重點是核心趨勢、動能與籌碼是否同步惡化。"
+    if regime_key == "BULL_PULLBACK":
+        return "多頭修正中的上漲常是支撐反彈，需要確認它能延續，而不是只看單日紅K。" if price_up else \
+               "多頭修正中的下跌代表整理仍在進行，若未出現中強賣訊，通常先保留核心部位。"
+    if regime_key == "BEAR":
+        return "空頭中的上漲容易只是跌深反彈，買進條件必須比多頭更嚴格。" if price_up else \
+               "空頭中的下跌代表風險延續，賣出訊號可信度會比多頭環境更高。"
+    return "盤整上漲需要觀察是否突破區間，不宜只因單日反彈重倉。" if price_up else \
+           "盤整下跌需要觀察是否跌破區間，操作仍以分批與風險控管為主。"
+
+
+def _build_contextual_reason(direction: str, level_key: str, regime: dict, b60: dict,
+                             default_reason: str, context: dict | None = None) -> str:
+    ctx = context or {}
+    regime_key = regime.get("key", "")
+    regime_label = regime.get("label", "目前環境")
+    price_up = bool(ctx.get("price_up", False))
+    positive_text = _phrase_list(ctx.get("positive_evidence", []))
+    risk_text = _phrase_list(ctx.get("risk_evidence", []), "趨勢與風險條件尚未完全配合")
+    move_context = _market_move_context(regime_key, price_up)
+    weak_or_lower = level_key in ("NEUTRAL", "NOTICE")
+
+    if direction == "BUY" and weak_or_lower:
+        return (
+            f"雖然出現{positive_text}，但目前仍屬{regime_label}，{risk_text}。"
+            f"{move_context} 對中長線布局來說，這類訊號先列為觀察，等買進分數升級到弱訊號以上再分批執行。"
+        )
+    if direction == "BUY":
+        if regime_key == "BEAR":
+            return (
+                f"買訊已出現，但目前仍是{regime_label}，{move_context} "
+                "因此只能視為小部位試單，不適合直接重倉。"
+            )
+        if b60.get("zone") == "overheated":
+            return (
+                f"買訊雖然成立，但季線乖離偏高，容易變成追價。"
+                f"{move_context} 中長線布局仍以等待拉回或訊號重新整理後分批為主。"
+            )
+        return (
+            f"{positive_text}已達買進門檻，但仍需留意{risk_text}。"
+            f"{move_context} 因此採分批，不一次打滿部位。"
+        )
+
+    if direction == "SELL" and weak_or_lower:
+        return (
+            f"雖然出現{risk_text}，但賣出分數仍未達實際交易門檻。"
+            f"{move_context} 對中長線持股來說，先檢查停損與部位，不因單日波動賣出核心部位。"
+        )
+    if direction == "SELL":
+        return (
+            f"{risk_text}已達賣出門檻。{move_context} "
+            "中長線操作不追求賣在最高點，而是在風險共振時分批降低曝險。"
+        )
+
+    if direction == "OVERHEATED":
+        if level_key in ("MID", "STRONG"):
+            return (
+                f"季線乖離已進入過熱區，且{risk_text}，不適合新增買進。"
+                f"{move_context} 此時重點是降低追高風險，必要時分批減碼。"
+            )
+        return (
+            f"季線乖離已進入過熱區，即使趨勢仍強，也不代表適合用新資金追價。"
+            f"{move_context} 賣出分數未明顯升高時，核心部位可續抱觀察。"
+        )
+
+    return default_reason
+
+
+def build_trade_plan(level: str, regime: dict, b60: dict, lev_warn: bool = False,
+                     context: dict | None = None) -> dict:
     direction, level_key = _parse_signal_level(level)
     base_pct = TRADE_BASE_PCTS.get(level_key, 0)
     regime_key = regime["key"]
@@ -521,6 +638,8 @@ def build_trade_plan(level: str, regime: dict, b60: dict, lev_warn: bool = False
     if level_key == "NOTICE":
         trade_pct = 0
         reason = "提醒等級只代表市場溫度有變化，不作為實際交易依據。"
+
+    reason = _build_contextual_reason(direction, level_key, regime, b60, reason, context)
 
     if lev_warn and trade_pct > 0:
         trade_pct = min(trade_pct, 20)
@@ -873,7 +992,8 @@ def evaluate(df: pd.DataFrame, scfg: dict, inst: dict | None = None) -> dict:
 
 
 def evaluate_weighted(df: pd.DataFrame, scfg: dict, inst: dict | None = None,
-                      macro: dict | None = None) -> dict:
+                      macro: dict | None = None,
+                      fundamentals: dict | None = None) -> dict:
     thr = scfg["thresholds"]
     ma = scfg["ma_periods"]
     use_obv = scfg.get("use_obv", True)
@@ -912,6 +1032,11 @@ def evaluate_weighted(df: pd.DataFrame, scfg: dict, inst: dict | None = None,
     buy_score = 0.0
     sell_score = 0.0
     max_possible = float(sum(WEIGHTS.values()))
+    inst_signal = "neutral"
+    rate_signal = "neutral"
+    volume_signal = "neutral"
+    obv_signal = "neutral"
+    kd_signal = "neutral"
 
     def add_item(label, value, color, note, buy=0.0, sell=0.0):
         nonlocal buy_score, sell_score
@@ -956,6 +1081,23 @@ def evaluate_weighted(df: pd.DataFrame, scfg: dict, inst: dict | None = None,
     )
     regime = classify_market_regime(close, ma_s, ma_m, ma_l, ma_s_prev, ma_m_prev, ma_l_prev)
 
+    ma60_dist = (close / ma_l - 1) * 100 if ma_l else 0.0
+    recent_ma60_dist = (df["Low"].tail(5) / df[f"MA{l}"].tail(5) - 1) * 100
+    recent_low_ma60_dist = float(recent_ma60_dist.min()) if not recent_ma60_dist.empty else ma60_dist
+    near_ma60_rebound = close > prev_close and (abs(ma60_dist) <= 5 or recent_low_ma60_dist <= 2)
+    support_note = (
+        f"收盤距MA{l}={ma60_dist:+.1f}%｜近5日最低距MA{l}={recent_low_ma60_dist:+.1f}%｜"
+        "中長線布局重視是否在重要均線附近止跌，而不是單日追價"
+    )
+    if near_ma60_rebound and regime["key"] in ("BULL_PULLBACK", "RANGE") and not b60["locked"]:
+        add_item("季線支撐位置", "季線附近支撐反彈 ✅", UP_COLOR, support_note, WEIGHTS["support_position"], 0)
+    elif close < ma_l and ma_m < ma_l:
+        add_item("季線支撐位置", "跌破季線且中期轉弱 ⚠️", DOWN_COLOR, support_note, 0, WEIGHTS["support_position"])
+    elif ma60_dist >= 20:
+        add_item("季線支撐位置", "離季線偏遠，追價風險升高", WARN_COLOR, support_note, 0, WEIGHTS["support_position"] * 0.5)
+    else:
+        add_item("季線支撐位置", "位置中性", NEUTRAL_COLOR, support_note)
+
     if use_fx:
         fx = macro.get("fx") if macro else None
         if fx:
@@ -998,12 +1140,16 @@ def evaluate_weighted(df: pd.DataFrame, scfg: dict, inst: dict | None = None,
                 "殖利率上升會提高股市折現率，通常壓抑科技股評價；殖利率下行則有利成長股估值修復"
             )
             if bp_5d is not None and bp_20d is not None and (bp_5d >= 10 or bp_20d >= 20):
+                rate_signal = "risk"
                 add_item("利率環境", "殖利率快速上升 ⚠️", DOWN_COLOR, rate_note, 0, WEIGHTS["rates"])
             elif bp_5d is not None and bp_20d is not None and (bp_5d <= -10 or bp_20d <= -20):
+                rate_signal = "support"
                 add_item("利率環境", "殖利率明顯下行 ✅", UP_COLOR, rate_note, WEIGHTS["rates"], 0)
             elif bp_5d is not None and bp_20d is not None and (bp_5d >= 5 or bp_20d >= 10):
+                rate_signal = "risk"
                 add_item("利率環境", "利率偏上行", "#f39c12", rate_note, 0, WEIGHTS["rates"] * 0.5)
             elif bp_5d is not None and bp_20d is not None and (bp_5d <= -5 or bp_20d <= -10):
+                rate_signal = "support"
                 add_item("利率環境", "利率偏下行", "#3498db", rate_note, WEIGHTS["rates"] * 0.5, 0)
             else:
                 add_item("利率環境", "利率中性", NEUTRAL_COLOR, rate_note)
@@ -1047,13 +1193,19 @@ def evaluate_weighted(df: pd.DataFrame, scfg: dict, inst: dict | None = None,
                 f"占20日均量 {format_ratio_value(net_ratio)}"
             )
             if net_ratio >= 5 and buy_breadth >= 2:
+                inst_signal = "strong_buy"
                 add_item("三大法人", "法人明顯買超 ✅", UP_COLOR, inst_note, WEIGHTS["institutional"], 0)
             elif net_ratio <= -5 and sell_breadth >= 2:
+                inst_signal = "strong_sell"
                 add_item("三大法人", "法人明顯賣超 ⚠️", DOWN_COLOR, inst_note, 0, WEIGHTS["institutional"])
-            elif net_ratio > 1 or buy_breadth >= 2:
+            elif net_ratio > 0 and (net_ratio > 1 or buy_breadth >= 2):
+                inst_signal = "buy"
                 add_item("三大法人", "法人偏買", UP_COLOR, inst_note, WEIGHTS["institutional"] * 0.5, 0)
-            elif net_ratio < -1 or sell_breadth >= 2:
+            elif net_ratio < 0 and (net_ratio < -1 or sell_breadth >= 2):
+                inst_signal = "sell"
                 add_item("三大法人", "法人偏賣", DOWN_COLOR, inst_note, 0, WEIGHTS["institutional"] * 0.5)
+            elif (buy_breadth >= 2 and net_ratio <= 0) or (sell_breadth >= 2 and net_ratio >= 0):
+                add_item("三大法人", "法人分歧", WARN_COLOR, inst_note + "｜合計方向與部分法人不同，不直接加分")
             else:
                 add_item("三大法人", "籌碼中性", NEUTRAL_COLOR, inst_note)
         else:
@@ -1071,12 +1223,16 @@ def evaluate_weighted(df: pd.DataFrame, scfg: dict, inst: dict | None = None,
         f"賣出區:K>{thr['kd_sell']}且K下穿D｜KD適合抓時機，但容易鈍化"
     )
     if kd_buy:
+        kd_signal = "buy"
         add_item("KD", "低檔黃金交叉 ✅", UP_COLOR, kd_note, WEIGHTS["kd"], 0)
     elif kd_sell:
+        kd_signal = "sell"
         add_item("KD", "高檔死亡交叉 ⚠️", DOWN_COLOR, kd_note, 0, WEIGHTS["kd"])
     elif k > d and k < 50:
+        kd_signal = "turning_up"
         add_item("KD", "低檔轉強但未交叉", "#3498db", kd_note, WEIGHTS["kd"] * 0.4, 0)
     elif k < d and k > 50:
+        kd_signal = "turning_down"
         add_item("KD", "高檔轉弱但未交叉", "#f39c12", kd_note, 0, WEIGHTS["kd"] * 0.4)
     else:
         add_item("KD", "無交叉訊號", NEUTRAL_COLOR, kd_note)
@@ -1102,10 +1258,13 @@ def evaluate_weighted(df: pd.DataFrame, scfg: dict, inst: dict | None = None,
             f"量能是確認項，權重較低"
         )
         if vol_trend > 0 and vol_ratio > 1.2 and close > prev_close:
+            volume_signal = "buy"
             add_item("量能趨勢", "價漲量增 ✅", UP_COLOR, vol_note, WEIGHTS["vol"], 0)
         elif vol_trend > 0 and vol_ratio > 1.2 and close < prev_close:
+            volume_signal = "sell"
             add_item("量能趨勢", "價跌量增 ⚠️", DOWN_COLOR, vol_note, 0, WEIGHTS["vol"])
         elif vol_trend < 0 and vol_ratio < 0.8 and close < prev_close:
+            volume_signal = "sell_light"
             add_item("量能趨勢", "價跌量縮", "#f39c12", vol_note, 0, WEIGHTS["vol"] * 0.4)
         else:
             add_item("量能趨勢", "量能平穩", NEUTRAL_COLOR, vol_note)
@@ -1122,18 +1281,71 @@ def evaluate_weighted(df: pd.DataFrame, scfg: dict, inst: dict | None = None,
             f"OBV可觀察量價累積，但雜訊高於趨勢與MACD"
         )
         if obv_rising and price_up:
+            obv_signal = "buy"
             add_item("OBV", "量價齊揚 ✅", UP_COLOR, obv_note, WEIGHTS["obv"], 0)
         elif obv_rising and not price_up:
+            obv_signal = "buy_light"
             add_item("OBV", "OBV領先價格 💡", "#3498db", obv_note, WEIGHTS["obv"] * 0.5, 0)
         elif obv_falling and not price_up:
+            obv_signal = "sell"
             add_item("OBV", "量價齊跌 ⚠️", DOWN_COLOR, obv_note, 0, WEIGHTS["obv"])
         elif obv_falling and price_up:
+            obv_signal = "sell_light"
             add_item("OBV", "價漲量縮背離 ⚠️", "#f39c12", obv_note, 0, WEIGHTS["obv"] * 0.5)
         else:
             add_item("OBV", "OBV中性", NEUTRAL_COLOR, obv_note)
     else:
         add_item("OBV", "已關閉（此標的不適用）", "#bdc3c7",
                  "此標的成交量結構不適合用OBV作為主要判斷")
+
+    if fundamentals and fundamentals.get("success"):
+        fdata = fundamentals.get("data", {})
+        rev_growth = fdata.get("revenue_growth")
+        earn_growth = fdata.get("earnings_growth")
+        margin = fdata.get("profit_margin")
+        pe = fdata.get("trailing_pe") or fdata.get("forward_pe")
+        pb = fdata.get("price_to_book")
+        fund_parts = []
+        if rev_growth is not None:
+            fund_parts.append(f"營收成長={rev_growth*100:+.1f}%")
+        if earn_growth is not None:
+            fund_parts.append(f"獲利成長={earn_growth*100:+.1f}%")
+        if margin is not None:
+            fund_parts.append(f"淨利率={margin*100:.1f}%")
+        fund_note = "｜".join(fund_parts) if fund_parts else "基本面欄位不足"
+        growth_values = [value for value in (rev_growth, earn_growth) if value is not None]
+        if growth_values and max(growth_values) >= 0.15:
+            add_item("基本面趨勢", "成長動能偏強 ✅", UP_COLOR, fund_note, WEIGHTS["fundamental"], 0)
+        elif growth_values and max(growth_values) > 0:
+            add_item("基本面趨勢", "基本面溫和成長", UP_COLOR, fund_note, WEIGHTS["fundamental"] * 0.5, 0)
+        elif growth_values and min(growth_values) <= -0.10:
+            add_item("基本面趨勢", "基本面明顯轉弱 ⚠️", DOWN_COLOR, fund_note, 0, WEIGHTS["fundamental"])
+        elif growth_values and min(growth_values) < 0:
+            add_item("基本面趨勢", "基本面偏弱", DOWN_COLOR, fund_note, 0, WEIGHTS["fundamental"] * 0.5)
+        else:
+            add_item("基本面趨勢", "資料中性", NEUTRAL_COLOR, fund_note)
+
+        val_parts = [f"BIAS60={b60['bias60']:.1f}%", f"歷史95%分位={b60['p_high']:.1f}%"]
+        if pe is not None:
+            val_parts.append(f"PE={pe:.1f}")
+        if pb is not None:
+            val_parts.append(f"PB={pb:.1f}")
+        val_note = "｜".join(val_parts) + "｜估值資料僅作中長線追價風險輔助，仍以公司基本面與位置搭配判斷"
+    else:
+        val_note = (
+            f"BIAS60={b60['bias60']:.1f}%｜歷史95%分位={b60['p_high']:.1f}%｜"
+            f"基本面/估值資料暫不可用:{fundamentals.get('error', '未取得資料') if fundamentals else '未取得資料'}"
+        )
+
+    near_overheated = b60["bias60"] >= b60["p_high"] * 0.9 or ma60_dist >= 20
+    if b60["locked"]:
+        add_item("估值與乖離", "過熱鎖定，禁止追買", DOWN_COLOR, val_note, 0, WEIGHTS["valuation"])
+    elif near_overheated:
+        add_item("估值與乖離", "接近過熱，追價風險高", WARN_COLOR, val_note, 0, WEIGHTS["valuation"] * 0.75)
+    elif b60["zone"] == "oversold" or ma60_dist <= -8:
+        add_item("估值與乖離", "位置偏低，可列入布局觀察", INFO_COLOR, val_note, WEIGHTS["valuation"] * 0.5, 0)
+    else:
+        add_item("估值與乖離", "估值/位置未過熱", NEUTRAL_COLOR, val_note)
 
     is_red = close > float(latest["Open"])
     open_p = float(latest["Open"])
@@ -1147,6 +1359,8 @@ def evaluate_weighted(df: pd.DataFrame, scfg: dict, inst: dict | None = None,
              UP_COLOR if is_red else DOWN_COLOR, price_note)
 
     effective_buy = 0.0 if b60["locked"] else buy_score
+    if not b60["locked"] and near_overheated and effective_buy >= 30:
+        effective_buy = min(effective_buy, 29)
     effective_sell = sell_score
     if b60["locked"]:
         level_key, level_label = score_to_signal(effective_sell)
@@ -1188,7 +1402,76 @@ def evaluate_weighted(df: pd.DataFrame, scfg: dict, inst: dict | None = None,
             "NEUTRAL": "賣出依據不足，繼續觀察",
         }[level_key]
 
-    trade_plan = build_trade_plan(level, regime, b60, lev_warn)
+    positive_evidence = []
+    risk_evidence = []
+    if near_ma60_rebound:
+        positive_evidence.append("季線附近止跌反彈")
+    elif close > prev_close:
+        positive_evidence.append("股價轉強")
+    else:
+        risk_evidence.append("股價下跌")
+
+    if trend == "healthy_bull":
+        positive_evidence.append("趨勢維持多頭")
+    elif trend == "weak_bull":
+        risk_evidence.append("短線趨勢仍在修正")
+    elif trend == "bear":
+        risk_evidence.append("中期趨勢偏空")
+
+    if hist > 0:
+        positive_evidence.append("MACD位於多頭區")
+    elif hist > hist_p:
+        positive_evidence.append("MACD負值收斂")
+        risk_evidence.append("MACD仍在空頭區")
+    else:
+        risk_evidence.append("MACD空頭動能尚未改善")
+
+    if inst_signal == "strong_buy":
+        positive_evidence.append("法人明顯買超")
+    elif inst_signal == "buy":
+        positive_evidence.append("法人偏買")
+    elif inst_signal == "strong_sell":
+        risk_evidence.append("法人明顯賣超")
+    elif inst_signal == "sell":
+        risk_evidence.append("法人偏賣")
+
+    if kd_signal == "buy":
+        positive_evidence.append("KD低檔黃金交叉")
+    elif kd_signal == "turning_up":
+        positive_evidence.append("KD低檔轉強")
+    elif kd_signal == "sell":
+        risk_evidence.append("KD高檔死亡交叉")
+    elif kd_signal == "turning_down":
+        risk_evidence.append("KD高檔轉弱")
+
+    if volume_signal == "buy":
+        positive_evidence.append("價漲量增")
+    elif volume_signal in ("sell", "sell_light"):
+        risk_evidence.append("量能偏弱")
+
+    if obv_signal in ("buy", "buy_light"):
+        positive_evidence.append("OBV量價改善")
+    elif obv_signal in ("sell", "sell_light"):
+        risk_evidence.append("OBV量價背離")
+
+    if rate_signal == "risk":
+        risk_evidence.append("美債殖利率上行壓抑科技股評價")
+    elif rate_signal == "support":
+        positive_evidence.append("利率環境改善")
+
+    if b60["locked"]:
+        risk_evidence.append("季線乖離過熱")
+    elif near_overheated:
+        risk_evidence.append("季線乖離接近歷史高位")
+
+    trade_context = {
+        "price_up": close > prev_close,
+        "positive_evidence": positive_evidence[:5],
+        "risk_evidence": risk_evidence[:5],
+        "ma60_dist": ma60_dist,
+        "recent_low_ma60_dist": recent_low_ma60_dist,
+    }
+    trade_plan = build_trade_plan(level, regime, b60, lev_warn, trade_context)
     pyramid = calc_pyramid(df, scfg, level)
 
     return dict(
@@ -1643,14 +1926,17 @@ def market_events_html(cfg: dict, today: str, news_items: list | None = None, ma
 
 def scoring_rules_html() -> str:
     weights = [
-        ("趨勢方向", WEIGHTS["trend"], "市場主方向"),
-        ("MACD動能", WEIGHTS["macd"], "漲跌動能"),
-        ("三大法人", WEIGHTS["institutional"], "法人籌碼"),
+        ("趨勢方向", WEIGHTS["trend"], "中長線主要方向"),
+        ("季線支撐位置", WEIGHTS["support_position"], "是否在合理位置分批布局"),
+        ("三大法人", WEIGHTS["institutional"], "法人合計與結構"),
+        ("MACD動能", WEIGHTS["macd"], "趨勢動能是否改善"),
         ("KD", WEIGHTS["kd"], "進出場時機"),
         ("OBV", WEIGHTS["obv"], "量價配合"),
+        ("量能", WEIGHTS["vol"], "成交確認"),
+        ("基本面趨勢", WEIGHTS["fundamental"], "營收、獲利與利潤率"),
+        ("估值與乖離", WEIGHTS["valuation"], "避免過熱追價"),
         ("台幣匯率", WEIGHTS["fx"], "台幣強弱影響外資流向與出口股獲利"),
         ("美國利率", WEIGHTS["rates"], "利率升降影響科技股評價"),
-        ("量能", WEIGHTS["vol"], "成交確認"),
     ]
     weight_rows = "".join(
         f'<tr style="border-bottom:1px solid #eee;">'
@@ -1695,7 +1981,7 @@ def scoring_rules_html() -> str:
         f'<th style="padding:8px 9px;text-align:left;">用途</th>'
         f'</tr></thead><tbody>{weight_rows}</tbody></table>'
         f'<div style="font-size:12px;color:#777;line-height:1.6;margin-top:10px;">'
-        f'BIAS60 用來判斷中期過熱或超跌，不直接加分；過熱時會鎖住買進，避免追高。</div>'
+        f'BIAS60 與估值位置用來判斷中期過熱或超跌；接近過熱時買進會降級，過熱時會鎖住買進，避免追高。</div>'
         f'<div style="font-weight:bold;color:#1f4e79;font-size:14px;margin:14px 0 8px;">交易訊號怎麼用</div>'
         f'<div style="font-size:13px;color:#555;line-height:1.7;margin-bottom:10px;">'
         f'這裡說明訊號等級的用途，不代表一定要完整照比例下單。'
@@ -2131,6 +2417,111 @@ def upload_report_image_to_drive(image_path: Path, today: str, cfg: dict) -> str
         return None
 
 
+def upload_file_to_drive(file_path: Path, folder_id: str, mime_type: str,
+                         file_name: str | None = None, make_public: bool = False) -> str | None:
+    if not folder_id:
+        return None
+    try:
+        from googleapiclient.http import MediaFileUpload
+    except Exception as exc:
+        print(f"⚠️  未安裝 Google Drive API 套件，跳過上傳：{exc}")
+        return None
+
+    service, auth_mode = build_google_drive_service()
+    if not service:
+        print("⚠️  未設定 Google OAuth 憑證，跳過 Google Drive 上傳")
+        return None
+
+    name = file_name or file_path.name
+    try:
+        print(f"使用 Google Drive {auth_mode} 憑證上傳 {name}")
+        media = MediaFileUpload(str(file_path), mimetype=mime_type, resumable=False)
+        query = (
+            f"'{folder_id}' in parents and "
+            f"name = '{name}' and "
+            "trashed = false"
+        )
+        existing = service.files().list(
+            q=query,
+            fields="files(id,name,webViewLink)",
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+        ).execute().get("files", [])
+
+        if existing:
+            uploaded = service.files().update(
+                fileId=existing[0]["id"],
+                media_body=media,
+                fields="id,name,webViewLink",
+                supportsAllDrives=True,
+            ).execute()
+        else:
+            uploaded = service.files().create(
+                body={"name": name, "parents": [folder_id]},
+                media_body=media,
+                fields="id,name,webViewLink",
+                supportsAllDrives=True,
+            ).execute()
+
+        if make_public:
+            try:
+                service.permissions().create(
+                    fileId=uploaded["id"],
+                    body={"type": "anyone", "role": "reader"},
+                    fields="id",
+                    supportsAllDrives=True,
+                ).execute()
+            except Exception as exc:
+                print(f"⚠️  設定 {name} 公開讀取失敗：{exc}")
+
+        return uploaded.get("webViewLink")
+    except Exception as exc:
+        print(f"⚠️  上傳 {name} 至 Google Drive 失敗：{exc}")
+        return None
+
+
+def save_public_report_html(html: str, today: str, cfg: dict) -> tuple[Path, Path] | tuple[None, None]:
+    public_cfg = cfg.get("public_report", {})
+    if not public_cfg.get("enabled", False):
+        return None, None
+    out_dir = Path(__file__).parent / "public_report"
+    out_dir.mkdir(exist_ok=True)
+    fixed_name = public_cfg.get("fixed_file_name") or public_cfg.get("latest_file_name", "每日台股報告.html")
+    archive_prefix = public_cfg.get("archive_file_prefix", Path(fixed_name).stem)
+    fixed_path = out_dir / fixed_name
+    archive_path = out_dir / f"{archive_prefix}_{today.replace('-', '')}.html"
+    fixed_path.write_text(html, encoding="utf-8")
+    archive_path.write_text(html, encoding="utf-8")
+    return fixed_path, archive_path
+
+
+def upload_public_report_html(fixed_path: Path | None, archive_path: Path | None,
+                              today: str, cfg: dict) -> str | None:
+    public_cfg = cfg.get("public_report", {})
+    if not public_cfg.get("enabled", False) or not fixed_path:
+        return None
+
+    folder_id = (
+        os.environ.get("PUBLIC_REPORT_DRIVE_FOLDER_ID")
+        or os.environ.get("FREE_REPORT_DRIVE_FOLDER_ID")
+        or public_cfg.get("folder_id")
+    )
+    if not folder_id:
+        print("⚠️  未設定免費觀眾 Google Drive folder_id，跳過上傳固定報告頁")
+        return None
+
+    make_public = bool(public_cfg.get("make_public", True))
+    fixed_name = public_cfg.get("fixed_file_name") or public_cfg.get("latest_file_name", "每日台股報告.html")
+    fixed_link = upload_file_to_drive(
+        fixed_path, folder_id, "text/html", fixed_name, make_public
+    )
+    if archive_path:
+        upload_file_to_drive(
+            archive_path, folder_id, "text/html", archive_path.name, make_public
+        )
+    return fixed_link
+
+
 # ── 發送 Email ───────────────────────────────────────────────
 def send_email(cfg: dict, html: str, today: str) -> bool:
     ec = cfg["email"]
@@ -2194,7 +2585,8 @@ def main():
             data_date = df.index[-1].strftime("%Y-%m-%d")
             df   = calc_indicators(df, scfg)
             inst = fetch_institutional(ticker) if scfg.get("use_institutional", True) else None
-            r    = evaluate_weighted(df, scfg, inst, macro)
+            fundamentals = fetch_fundamental_context(ticker)
+            r    = evaluate_weighted(df, scfg, inst, macro, fundamentals)
             r["stock_note"] = note
             r["data_date"] = data_date
             results.append((name, ticker, r))
@@ -2215,6 +2607,7 @@ def main():
     html = build_email_html(results, today, cfg, macro, news_items, market_events)
     preview_path = save_email_preview(html)
     print(f"\n已產生 Email 預覽：{preview_path}")
+    public_latest, public_archive = save_public_report_html(html, today, cfg)
 
     print(f"\n發送 Email 至 {cfg['email']['to']} ...")
     try:
@@ -2222,6 +2615,10 @@ def main():
             print("✅ Email 發送成功")
     except Exception as e:
         print(f"❌ Email 失敗：{e}")
+
+    public_link = upload_public_report_html(public_latest, public_archive, today, cfg)
+    if public_link:
+        print(f"已更新免費觀眾固定報告頁：{public_link}")
 
     social_pages = save_social_report_pages(
         build_social_report_pages(results, today, cfg, macro, news_items, market_events), today

@@ -38,4 +38,5 @@ jobs:
           GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
           GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
           DAILY_REPORT_DRIVE_FOLDER_ID: ${{ secrets.DAILY_REPORT_DRIVE_FOLDER_ID }}
+          PUBLIC_REPORT_DRIVE_FOLDER_ID: ${{ vars.PUBLIC_REPORT_DRIVE_FOLDER_ID }}
         run: python stock_market_tracking_system.py
