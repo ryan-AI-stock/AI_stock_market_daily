@@ -16,10 +16,10 @@ main
 
 ## 主要檔案
 
-- stock_market_tracking_system.py：主程式，負責抓資料、計算訊號、產生 HTML 報告、寄信、產生社群圖片與上傳 Google Drive。
+- stock_market_tracking_system.py：主程式，負責抓資料、計算訊號、產生 HTML/PDF 報告與上傳 Google Drive。
 - config.json：追蹤標的、指標門檻、Email、重大事件、新聞與 Google Drive 設定。
 - .github/workflows/daily_run.yml：GitHub Actions 每日自動執行設定。
-- preview_email.bat：本機雙擊產生 Email 預覽用。
+- preview_email.bat：本機雙擊產生 HTML 預覽用。
 - email_preview.html：本機執行後產生的預覽檔，不應提交到 Git。
 
 ## 目前模型
@@ -93,19 +93,13 @@ LINE 官方帳號關鍵字回覆只需要設定固定 PDF 的分享連結。每�
 
 python stock_market_tracking_system.py
 
-執行後會產生 email_preview.html。
-
-如果本機沒有設定 SMTP_USERNAME / SMTP_PASSWORD / REPORT_EMAIL_TO，程式會跳過寄信，但仍會產生 HTML 預覽。
+執行後會產生 email_preview.html、免費觀眾摘要 PDF 與自用完整備份 PDF。Email 發送目前已關閉。
 
 ## GitHub Actions
 
 GitHub Actions 設定為每天台灣時間下午 16:00 執行一次，16:15 備援觸發；程式會避免同日重複寄送。
 
-寄信需要在 GitHub Organization 或 repo 的 Secrets 設定：
-
-SMTP_USERNAME
-SMTP_PASSWORD
-REPORT_EMAIL_TO
+目前 Email 發送已關閉，主要閱讀方式改為 Google Drive PDF。
 
 Google Drive 上傳需要在 GitHub Organization 或 repo 的 Secrets 設定 GOOGLE_OAUTH_CLIENT_ID、GOOGLE_OAUTH_CLIENT_SECRET、GOOGLE_OAUTH_REFRESH_TOKEN 與 DAILY_REPORT_DRIVE_FOLDER_ID。
 

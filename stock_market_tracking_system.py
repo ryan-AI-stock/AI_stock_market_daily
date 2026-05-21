@@ -2028,6 +2028,88 @@ def build_email_html(results: list, today: str, cfg: dict | None = None,
             f'</div></body></html>')
 
 
+def _plain_text(value: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", str(value or ""))).strip()
+
+
+def _public_news_rows(news_items: list | None, limit: int = 5) -> str:
+    rows = ""
+    for item in (news_items or [])[:limit]:
+        rows += (
+            f"<div class='news-item'>"
+            f"<div class='news-title'>{html_lib.escape(_social_short_text(item.get('title',''), 52))}</div>"
+            f"<div class='news-meta'>{html_lib.escape(item.get('date',''))}｜{html_lib.escape(item.get('source','Google News'))}</div>"
+            f"</div>"
+        )
+    return rows or "<div class='muted'>近 3 天未抓到高關聯新聞。</div>"
+
+
+def _public_event_rows(cfg: dict | None, today: str, market_events: list | None, limit: int = 4) -> str:
+    rows = ""
+    for event in _social_events(cfg, today, market_events, limit):
+        rows += (
+            f"<div class='event-item'>"
+            f"<div class='event-title'>{html_lib.escape(_social_short_text(event.get('title',''), 46))}</div>"
+            f"<div class='event-meta'>{html_lib.escape(event.get('date',''))}｜影響 {html_lib.escape(event.get('impact','未評估'))}</div>"
+            f"</div>"
+        )
+    return rows or "<div class='muted'>近期無高關聯重大事件。</div>"
+
+
+def build_public_report_html(results: list, today: str, cfg: dict | None = None,
+                             macro: dict | None = None, news_items: list | None = None,
+                             market_events: list | None = None) -> str:
+    cfg = cfg or {}
+    date_text = today.replace("-", "/")
+    market = results[0][2] if results else {}
+    fx = macro.get("fx") if macro else None
+    rates = macro.get("rates") if macro else None
+    fx_text = f"{fx['value']:.3f}" if fx else "-"
+    rates_text = f"{rates['value']:.2f}%" if rates else "-"
+    market_plan = market.get("trade_plan", {})
+    css = """
+    <style>
+      @page{size:A4;margin:12mm} *{box-sizing:border-box}
+      body{font-family:Arial,'Noto Sans TC',sans-serif;color:#203040;margin:0;background:#fff;font-size:13px;line-height:1.45}
+      .cover{background:#243447;color:#fff;border-radius:14px;padding:22px 24px;margin-bottom:14px}
+      h1{font-size:30px;margin:0 0 6px}.sub{font-size:15px;opacity:.85}.section{border:1px solid #dfe6ee;border-radius:12px;padding:14px 16px;margin-bottom:12px;break-inside:avoid}
+      .section h2{font-size:19px;margin:0 0 10px;color:#243447}.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}.metric{background:#f3f6f9;border-radius:10px;padding:10px}.label{font-size:12px;color:#778391}.value{font-size:21px;font-weight:800;margin-top:3px}
+      .summary{border-left:6px solid var(--c);background:#fbfcfd;border-radius:10px;padding:10px 12px;margin-top:10px}.summary-main{font-size:17px;font-weight:800;color:var(--c)}.summary-sub{color:#4f5f70;margin-top:4px}
+      table{width:100%;border-collapse:collapse;font-size:12px}th{background:#eef3f7;color:#243447;text-align:left;padding:8px;border-bottom:1px solid #dfe6ee}td{padding:8px;border-bottom:1px solid #e8eef3;vertical-align:top}.stock{font-weight:800;font-size:14px}.badge{display:inline-block;color:#fff;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:800}.op{font-weight:800}.reason{color:#526273;font-size:11.5px}.score{white-space:nowrap;font-weight:800}.cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}.news-item,.event-item{border-left:5px solid #f39c12;background:#fbfcfd;border-radius:8px;padding:8px 10px;margin-bottom:7px}.event-item{border-left-color:#c0392b}.news-title,.event-title{font-weight:800}.news-meta,.event-meta,.muted{color:#778391;font-size:11.5px;margin-top:3px}.disclaimer{font-size:11px;color:#778391;text-align:center;margin-top:10px}
+    </style>
+    """
+    rows = ""
+    for name, ticker, r in results:
+        trade_plan = r.get("trade_plan", {})
+        reason = _social_reason(r, 92)
+        code = ticker.replace(".TW", "").replace(".tw", "")
+        rows += (
+            f"<tr>"
+            f"<td><div class='stock'>{html_lib.escape(name)}</div><div class='muted'>{html_lib.escape(code)}</div></td>"
+            f"<td><span class='badge' style='background:{r.get('border', NEUTRAL_COLOR)}'>{html_lib.escape(_social_short_text(r.get('summary',''), 24))}</span></td>"
+            f"<td class='op'>{html_lib.escape(trade_plan.get('headline','觀察'))}</td>"
+            f"<td class='score'>買 {r.get('effective_buy',0):.0f}<br>賣 {r.get('effective_sell',0):.0f}</td>"
+            f"<td class='reason'>{reason}</td>"
+            f"</tr>"
+        )
+    return (
+        f"<!DOCTYPE html><html><head><meta charset='utf-8'>{css}</head><body>"
+        f"<div class='cover'><h1>被AI研究社｜每日台股分析</h1><div class='sub'>{date_text} 收盤後整理｜免費版摘要 PDF</div></div>"
+        f"<div class='section'><h2>今日市場快照</h2><div class='grid3'>"
+        f"<div class='metric'><div class='label'>台股加權</div><div class='value'>{market.get('close',0):.2f}</div></div>"
+        f"<div class='metric'><div class='label'>美元/台幣</div><div class='value'>{fx_text}</div></div>"
+        f"<div class='metric'><div class='label'>美10年債殖利率</div><div class='value'>{rates_text}</div></div>"
+        f"</div><div class='summary' style='--c:{market.get('border', NEUTRAL_COLOR)}'>"
+        f"<div class='summary-main'>{html_lib.escape(market.get('summary','無訊號'))}｜{html_lib.escape(market_plan.get('headline','觀察'))}</div>"
+        f"<div class='summary-sub'>{_social_reason(market, 120)}</div></div></div>"
+        f"<div class='section'><h2>8 檔追蹤標的摘要</h2><table><thead><tr><th>標的</th><th>訊號</th><th>操作</th><th>分數</th><th>重點說明</th></tr></thead><tbody>{rows}</tbody></table></div>"
+        f"<div class='section'><h2>消息與事件</h2><div class='cols'><div><h2>近期新聞</h2>{_public_news_rows(news_items)}</div><div><h2>重大事件</h2>{_public_event_rows(cfg, today, market_events)}</div></div></div>"
+        f"<div class='section'><h2>閱讀說明</h2><div class='muted'>完整細節保留於內部完整報告；免費版重點放在市場狀態、操作方向與主要原因。訊號為模型輔助判斷，不構成投資建議。</div></div>"
+        f"<div class='disclaimer'>本報告由自動化程式產生，僅供資訊整理與投資紀律參考。</div>"
+        f"</body></html>"
+    )
+
+
 def _social_item_detail(result: dict, label: str, default: str = "-") -> tuple[str, str, str]:
     for item_label, value, color, note in result.get("items", []):
         if item_label == label or item_label.startswith(label):
@@ -2550,6 +2632,9 @@ def upload_public_report_file(fixed_path: Path | None, cfg: dict) -> str | None:
 # ── 發送 Email ───────────────────────────────────────────────
 def send_email(cfg: dict, html: str, today: str) -> bool:
     ec = cfg["email"]
+    if not ec.get("enabled", True):
+        print("Email 發送已關閉，改由 Google Drive PDF 報告提供閱讀")
+        return False
     smtp_username = os.environ.get("SMTP_USERNAME") or ec.get("from", "")
     smtp_password = os.environ.get("SMTP_PASSWORD", "")
     email_to = os.environ.get("REPORT_EMAIL_TO") or ec.get("to", "")
@@ -2635,14 +2720,18 @@ def main():
     html = build_email_html(results, today, cfg, macro, news_items, market_events)
     preview_path = save_email_preview(html)
     print(f"\n已產生 Email 預覽：{preview_path}")
-    public_report_path = save_public_report_file(html, today, cfg)
+    public_html = build_public_report_html(results, today, cfg, macro, news_items, market_events)
+    public_report_path = save_public_report_file(public_html, today, cfg)
 
-    print(f"\n發送 Email 至 {cfg['email']['to']} ...")
-    try:
-        if send_email(cfg, html, today):
-            print("✅ Email 發送成功")
-    except Exception as e:
-        print(f"❌ Email 失敗：{e}")
+    if cfg.get("email", {}).get("enabled", True):
+        print(f"\n發送 Email 至 {cfg['email']['to']} ...")
+        try:
+            if send_email(cfg, html, today):
+                print("✅ Email 發送成功")
+        except Exception as e:
+            print(f"❌ Email 失敗：{e}")
+    else:
+        print("\nEmail 發送已關閉，略過寄信")
 
     public_link = upload_public_report_file(public_report_path, cfg)
     if public_link:
