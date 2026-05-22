@@ -2936,8 +2936,14 @@ def main():
     public_link = upload_public_report_file(public_report_path, cfg)
     if public_link:
         print(f"已更新免費觀眾固定報告頁：{public_link}")
+    elif not cfg.get("email", {}).get("enabled", True) and cfg.get("public_report", {}).get("enabled", False):
+        msg = "Email 已關閉，但免費觀眾 Google Drive PDF 上傳失敗，發布流程中止"
+        if os.environ.get("GITHUB_ACTIONS", "").lower() == "true":
+            raise RuntimeError(msg)
+        print(f"❌ {msg}")
 
     backup_pdf = render_report_pdf(preview_path, f"每日台股報告_{date_key}.pdf")
+    drive_link = None
     if backup_pdf:
         print(f"已產生自用備份 PDF：{backup_pdf}")
         drive_link = upload_report_file_to_drive(
@@ -2945,6 +2951,11 @@ def main():
         )
         if drive_link:
             print(f"已上傳自用備份 PDF 至 Google Drive：{drive_link}")
+        elif not cfg.get("email", {}).get("enabled", True) and cfg.get("drive_report", {}).get("enabled", False):
+            msg = "Email 已關閉，但自用備份 Google Drive PDF 上傳失敗，發布流程中止"
+            if os.environ.get("GITHUB_ACTIONS", "").lower() == "true":
+                raise RuntimeError(msg)
+            print(f"❌ {msg}")
 
 
 
