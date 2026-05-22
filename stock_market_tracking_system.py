@@ -2088,6 +2088,20 @@ def _public_signal_text(value: str, limit: int = 24) -> str:
     return _social_short_text(text, limit)
 
 
+def _public_signal_action_text(summary: str, headline: str, limit: int = 26) -> str:
+    summary_text = _public_signal_text(summary, limit)
+    headline_text = str(headline or "").strip()
+    if not headline_text:
+        return summary_text
+    for part in reversed([p.strip() for p in re.split(r"[｜|]", summary_text) if p.strip()]):
+        if headline_text.startswith(part):
+            suffix = headline_text[len(part):].lstrip("，,、 ｜|")
+            return f"{summary_text}，{suffix}" if suffix else summary_text
+    if headline_text in summary_text:
+        return summary_text
+    return f"{summary_text}｜{headline_text}"
+
+
 def _public_key_chips(result: dict, limit: int = 3) -> str:
     priority = {
         "季線支撐位置": 110,
@@ -2271,7 +2285,7 @@ def build_public_report_html(results: list, today: str, cfg: dict | None = None,
         f"<div class='metric'><div class='label'>美元/台幣</div><div class='value'>{fx_text}</div></div>"
         f"<div class='metric'><div class='label'>美10年債殖利率</div><div class='value'>{rates_text}</div></div>"
         f"</div><div class='summary' style='--c:{market.get('border', NEUTRAL_COLOR)}'>"
-        f"<div class='summary-main'>{_public_signal_lamp(market)} {html_lib.escape(_public_signal_text(market.get('summary','無訊號'), 26))}｜{html_lib.escape(market_plan.get('headline','觀察'))}</div>"
+        f"<div class='summary-main'>{_public_signal_lamp(market)} {html_lib.escape(_public_signal_action_text(market.get('summary','無訊號'), market_plan.get('headline','觀察')))}</div>"
         f"<div class='market-notes'><div class='note-title'>今日市場重點</div>{market_notes}</div></div></div>"
         f"<div class='section'><h2>今日操作分群</h2><div class='groups'>"
         f"<div class='group' style='--c:{UP_COLOR}'><div class='group-title'>可小部位布局</div><div class='group-list'>{html_lib.escape(buy_group)}</div></div>"
