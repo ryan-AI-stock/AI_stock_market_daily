@@ -2117,6 +2117,40 @@ def _public_action_group(results: list, predicate) -> str:
     return "、".join(names) if names else "無"
 
 
+def _public_market_notes(market: dict, macro: dict | None, buy_group: str, risk_group: str) -> str:
+    close = float(market.get("close", 0) or 0)
+    regime = market.get("regime", {})
+    regime_label = str(regime.get("label") or "市場狀態未明")
+    headline = str(market.get("trade_plan", {}).get("headline") or "觀察")
+    notes = []
+    if close >= 42000:
+        notes.append(f"指數站上 42,000 點後仍要看量能與權值股接棒，{regime_label}下不追高。")
+    elif 0 < 42000 - close <= 900:
+        notes.append(f"指數仍在 42,000 點前高附近整理，攻不上去通常代表資金在等新催化或獲利了結。")
+    elif close >= 40000:
+        notes.append(f"大盤仍屬高檔區間，重點不是猜高點，而是確認回檔時法人與季線能否守住。")
+    else:
+        notes.append(f"大盤未站回高檔區間前，先看修復力道與量能是否同步回來。")
+
+    if buy_group != "無":
+        notes.append(f"今日可留意 {buy_group} 的小部位布局訊號，但仍以分批與確認延續為主。")
+    else:
+        notes.append(f"今日沒有明確加碼主線，{headline}，保留現金比追訊號更重要。")
+
+    rates = macro.get("rates") if macro else None
+    fx = macro.get("fx") if macro else None
+    if rates and float(rates.get("value", 0) or 0) >= 4.5:
+        notes.append("美債殖利率偏高會壓抑科技股評價，權值股反彈要看法人是否連續回補。")
+    elif fx and float(fx.get("value", 0) or 0) >= 31.5:
+        notes.append("台幣偏弱時外資態度容易保守，反彈行情需觀察買盤是否延續。")
+    elif risk_group != "無":
+        notes.append(f"{risk_group} 仍有風險訊號，核心部位可續抱，但不適合無條件追價。")
+    else:
+        notes.append("短線若量能放大且法人延續買超，才代表反彈有機會轉成下一段趨勢。")
+
+    return "".join(f"<div class='note-line'>{html_lib.escape(note)}</div>" for note in notes[:3])
+
+
 def _public_indicator_tile(title: str, value: str, color: str, note: str = "", limit: int = 18) -> str:
     note_text = _social_short_text(str(note).split("｜")[0], 18) if note else ""
     return (
@@ -2182,10 +2216,11 @@ def build_public_report_html(results: list, today: str, cfg: dict | None = None,
       .section{background:#fff;border:1px solid #dfe6ee;border-radius:13px;padding:15px 17px;margin-bottom:13px;box-shadow:0 2px 8px rgba(31,45,61,.04)}
       .section h2{font-size:20px;margin:0 0 10px;color:#243447}.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}.metric{background:#f0f3f6;border-radius:10px;padding:12px}.label{font-size:12px;color:#778391}.value{font-size:25px;font-weight:900;margin-top:4px}
       .summary{border-left:8px solid var(--c);background:#fbfcfd;border-radius:11px;padding:11px 13px;margin-top:10px}.summary-main{display:flex;align-items:center;gap:8px;font-size:18px;font-weight:900;color:var(--c)}
-      .lamp{display:inline-block;width:13px;height:13px;border-radius:50%;background:var(--lamp);box-shadow:0 0 0 4px rgba(0,0,0,.05);flex:0 0 auto}
-      .groups{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}.group{background:#f7f9fb;border-radius:12px;padding:12px;border-top:6px solid var(--c);min-height:110px}.group-title{font-size:16px;font-weight:900;color:var(--c)}.group-list{font-size:17px;font-weight:900;margin-top:8px;line-height:1.45}
+      .lamp{display:inline-block;width:16px;height:16px;border-radius:50%;background:radial-gradient(circle at 35% 32%,#fff 0 2px,var(--lamp) 3px 7px,#26323a 8px 100%);border:2px solid rgba(255,255,255,.88);box-shadow:0 1px 3px rgba(0,0,0,.22),0 0 10px color-mix(in srgb,var(--lamp) 55%,transparent);flex:0 0 auto}
+      .market-notes{margin-top:10px;background:#fff;border:1px solid #e4ebf0;border-radius:10px;padding:10px 12px}.note-title{font-size:13px;font-weight:900;color:#243447;margin-bottom:5px}.note-line{font-size:13px;font-weight:700;color:#526273;line-height:1.45;margin-top:3px}
+      .groups{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}.group{background:#f7f9fb;border-radius:12px;padding:11px;border-top:6px solid var(--c);min-height:96px}.group-title{font-size:16px;font-weight:900;color:var(--c)}.group-list{font-size:16px;font-weight:900;margin-top:8px;line-height:1.4}
       .cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}.news-item,.event-item{border-left:6px solid #f39c12;background:#fbfcfd;border-radius:9px;padding:10px 11px;margin-bottom:8px;min-height:62px}.event-item{border-left-color:#c0392b}.news-title,.event-title{font-weight:900;font-size:14px;line-height:1.35}.news-meta,.event-meta,.muted{color:#778391;font-size:12px;margin-top:3px}
-      .summary-cards{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:repeat(4,1fr);gap:11px;height:1050px}.card{border:1px solid #dfe6ee;border-left:8px solid var(--c);border-radius:14px;padding:14px;background:#fff;overflow:hidden;break-inside:avoid;display:flex;flex-direction:column}.head{display:flex;justify-content:space-between;gap:10px}.name{font-size:20px;font-weight:900}.code{font-size:12px;color:#7b8794}.price{font-size:20px;font-weight:900}.badge{display:inline-flex;align-items:center;gap:8px;background:var(--c);color:#fff;border-radius:999px;padding:6px 11px;font-size:14px;font-weight:900;margin:9px 0 8px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.badge .lamp{box-shadow:none;border:2px solid rgba(255,255,255,.65)}.op{font-size:18px;font-weight:900;line-height:1.25}.score{font-size:13px;font-weight:900;color:#526273;text-align:right;white-space:nowrap}.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.chip{background:var(--c);color:#fff;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:900}.mini-row{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:auto;padding-top:8px}.mini{background:#f2f5f7;border-radius:9px;padding:7px 8px}.mini-label{font-size:11px;color:#7b8794}.mini-value{font-size:13px;font-weight:900;margin-top:2px}
+      .summary-cards{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:repeat(4,1fr);gap:11px;height:1050px}.card{border:1px solid #dfe6ee;border-left:8px solid var(--c);border-radius:14px;padding:14px;background:#fff;overflow:hidden;break-inside:avoid;display:flex;flex-direction:column}.head{display:flex;justify-content:space-between;gap:10px}.name{font-size:20px;font-weight:900}.code{font-size:12px;color:#7b8794}.price{font-size:20px;font-weight:900}.badge{display:inline-flex;align-items:center;gap:8px;background:var(--c);color:#fff;border-radius:999px;padding:6px 11px;font-size:14px;font-weight:900;margin:9px 0 8px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.badge .lamp{box-shadow:0 1px 2px rgba(0,0,0,.22);border-color:rgba(255,255,255,.9)}.op{font-size:18px;font-weight:900;line-height:1.25}.score{font-size:13px;font-weight:900;color:#526273;text-align:right;white-space:nowrap}.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.chip{background:var(--c);color:#fff;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:900}.mini-row{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:auto;padding-top:8px}.mini{background:#f2f5f7;border-radius:9px;padding:7px 8px}.mini-label{font-size:11px;color:#7b8794}.mini-value{font-size:13px;font-weight:900;margin-top:2px}
       .detail-grid{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:12px;height:1050px}.detail-card{border:1px solid #dfe6ee;border-left:8px solid var(--c);border-radius:14px;background:#fff;padding:14px;overflow:hidden}.detail-title{display:flex;justify-content:space-between;gap:10px;margin-bottom:9px}.detail-name{font-size:22px;font-weight:900}.detail-meta{color:#778391;font-size:12px}.tile-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}.tile{background:#f2f5f7;border-radius:10px;padding:8px 9px;min-height:69px;overflow:hidden}.tile-title{font-size:12px;color:#7b8794}.tile-value{font-size:15px;font-weight:900;line-height:1.2;margin-top:2px}.tile-note{font-size:11px;color:#8a96a3;line-height:1.2;margin-top:3px}.footer{font-size:12px;color:#778391;text-align:center;margin-top:8px}
     </style>
     """
@@ -2227,21 +2262,23 @@ def build_public_report_html(results: list, today: str, cfg: dict | None = None,
     buy_group = _public_action_group(results, lambda r: str(r.get("trade_plan", {}).get("headline", "")).startswith("買進"))
     hold_group = _public_action_group(results, lambda r: "觀察" in str(r.get("trade_plan", {}).get("headline", "")))
     risk_group = _public_action_group(results, lambda r: "禁止" in str(r.get("trade_plan", {}).get("headline", "")) or str(r.get("level", "")).startswith(("SELL", "OVERHEATED")))
+    market_notes = _public_market_notes(market, macro, buy_group, risk_group)
     return (
         f"<!DOCTYPE html><html><head><meta charset='utf-8'>{css}</head><body>"
-        f"<div class='page'><div class='cover'><h1>被AI研究社｜每日台股分析</h1><div class='sub'>{date_text} 收盤後整理｜免費版重點 PDF</div></div>"
+        f"<div class='page'><div class='cover'><h1>被AI研究社｜每日台股分析</h1><div class='sub'>{date_text} 收盤後整理｜社群重點摘要</div></div>"
         f"<div class='section'><h2>市場快照</h2><div class='grid3'>"
         f"<div class='metric'><div class='label'>台股加權</div><div class='value'>{market.get('close',0):.2f}</div></div>"
         f"<div class='metric'><div class='label'>美元/台幣</div><div class='value'>{fx_text}</div></div>"
         f"<div class='metric'><div class='label'>美10年債殖利率</div><div class='value'>{rates_text}</div></div>"
         f"</div><div class='summary' style='--c:{market.get('border', NEUTRAL_COLOR)}'>"
-        f"<div class='summary-main'>{_public_signal_lamp(market)} {html_lib.escape(_public_signal_text(market.get('summary','無訊號'), 26))}｜{html_lib.escape(market_plan.get('headline','觀察'))}</div></div></div>"
+        f"<div class='summary-main'>{_public_signal_lamp(market)} {html_lib.escape(_public_signal_text(market.get('summary','無訊號'), 26))}｜{html_lib.escape(market_plan.get('headline','觀察'))}</div>"
+        f"<div class='market-notes'><div class='note-title'>今日市場重點</div>{market_notes}</div></div></div>"
         f"<div class='section'><h2>今日操作分群</h2><div class='groups'>"
         f"<div class='group' style='--c:{UP_COLOR}'><div class='group-title'>可小部位布局</div><div class='group-list'>{html_lib.escape(buy_group)}</div></div>"
         f"<div class='group' style='--c:{NEUTRAL_COLOR}'><div class='group-title'>續抱 / 觀察</div><div class='group-list'>{html_lib.escape(hold_group)}</div></div>"
         f"<div class='group' style='--c:{DOWN_COLOR}'><div class='group-title'>風險升高</div><div class='group-list'>{html_lib.escape(risk_group)}</div></div>"
         f"</div></div>"
-        f"<div class='section'><h2>消息與事件</h2><div class='cols'><div><h2>近 3 天新聞</h2>{_public_news_rows(news_items, 6)}</div><div><h2>重大事件</h2>{_public_event_rows(cfg, today, market_events, 5)}</div></div></div>"
+        f"<div class='section'><h2>消息與事件</h2><div class='cols'><div><h2>近 3 天新聞</h2>{_public_news_rows(news_items, 5)}</div><div><h2>重大事件</h2>{_public_event_rows(cfg, today, market_events, 4)}</div></div></div>"
         f"<div class='footer'>免費版保留每日重點、操作分群、消息事件與核心指標；模型結果僅供資訊整理，不構成投資建議。</div></div>"
         f"<div class='page'><div class='cover'><h1>8 檔追蹤標的</h1><div class='sub'>{date_text}｜信號燈、操作方向、關鍵指標</div></div>"
         f"<div class='summary-cards'>{summary_cards}</div>"
