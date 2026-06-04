@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime
 
 import stock_market_tracking_system as sm
 
@@ -39,6 +40,20 @@ class ValidateReportCompletenessTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "資料日非 2026-06-04=2330.TW"):
             sm.validate_report_completeness(results, [], WATCHLIST, "2026-06-04")
+
+
+class GetReportDateTests(unittest.TestCase):
+    def test_starts_new_cycle_at_15_taiwan_time(self):
+        self.assertEqual(sm.get_report_date(datetime(2026, 6, 4, 15, 0)), "2026-06-04")
+
+    def test_keeps_previous_cycle_after_midnight(self):
+        self.assertEqual(sm.get_report_date(datetime(2026, 6, 5, 2, 0)), "2026-06-04")
+
+    def test_keeps_friday_cycle_through_weekend(self):
+        self.assertEqual(sm.get_report_date(datetime(2026, 6, 6, 18, 0)), "2026-06-05")
+
+    def test_keeps_friday_cycle_until_monday_15(self):
+        self.assertEqual(sm.get_report_date(datetime(2026, 6, 8, 14, 59)), "2026-06-05")
 
 
 if __name__ == "__main__":

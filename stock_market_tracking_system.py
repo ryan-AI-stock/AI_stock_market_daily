@@ -2899,12 +2899,25 @@ def validate_report_completeness(results: list, failures: list, watchlist: list,
         raise RuntimeError("報告資料不完整，禁止產生與發布檔案｜" + "｜".join(issues))
 
 
+def get_report_date(now_tw: datetime) -> str:
+    """Use 15:00 Taiwan time as the start of a report cycle and carry it across midnight."""
+    candidate = now_tw.date()
+    if now_tw.hour < 15 or candidate.weekday() >= 5:
+        candidate -= timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate -= timedelta(days=1)
+    return candidate.strftime("%Y-%m-%d")
+
+
 # ── 主流程 ───────────────────────────────────────────────────
 def main():
     cfg   = load_config()
     now_tw = datetime.now(TAIPEI_TZ)
-    today = now_tw.strftime("%Y-%m-%d")
-    print(f"[{now_tw.strftime('%Y-%m-%d %H:%M')}] 開始分析，共 {len(cfg['watchlist'])} 檔")
+    today = get_report_date(now_tw)
+    print(
+        f"[{now_tw.strftime('%Y-%m-%d %H:%M')}] 開始分析，共 {len(cfg['watchlist'])} 檔"
+        f"｜報告週期={today}"
+    )
     date_key = today.replace("-", "")
     force_run = os.environ.get("FORCE_RUN_REPORT", "").strip().lower() in ("1", "true", "yes", "y")
     if force_run:
