@@ -56,5 +56,31 @@ class GetReportDateTests(unittest.TestCase):
         self.assertEqual(sm.get_report_date(datetime(2026, 6, 8, 14, 59)), "2026-06-05")
 
 
+class NeutralizeReportLanguageTests(unittest.TestCase):
+    def test_replaces_transaction_instructions_without_changing_html(self):
+        source = (
+            "<div>買進或加碼 50%｜賣出或減碼 40%｜買進提醒｜賣出弱訊號｜"
+            "強勢續抱｜禁止追買｜今日操作分群｜可小部位布局｜買／賣分數｜"
+            "建議降低部位或暫緩操作｜分批試單｜停損｜重倉｜建倉</div>"
+        )
+
+        result = sm.neutralize_report_language(source)
+
+        self.assertIn("<div>", result)
+        self.assertIn("正向條件通過 5／10", result)
+        self.assertIn("風險條件通過 4／10", result)
+        self.assertIn("正向條件成立", result)
+        self.assertIn("風險條件增加", result)
+        self.assertIn("趨勢條件仍成立", result)
+        self.assertIn("追價風險偏高", result)
+        self.assertIn("今日條件分群", result)
+        self.assertIn("正向條件／風險條件分數", result)
+        for banned in (
+            "買進", "賣出", "加碼", "減碼", "續抱", "布局", "禁止追買",
+            "停損", "重倉", "建倉", "分批", "部位", "操作", "建議", "執行",
+        ):
+            self.assertNotIn(banned, result)
+
+
 if __name__ == "__main__":
     unittest.main()

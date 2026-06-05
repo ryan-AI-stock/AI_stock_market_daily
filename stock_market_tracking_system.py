@@ -64,6 +64,137 @@ TRADE_BASE_PCTS = {
 }
 
 
+def neutralize_report_language(content: str) -> str:
+    """Replace transaction-like wording only after the report HTML is fully built."""
+    text = str(content)
+
+    def condition_score(match: re.Match, label: str) -> str:
+        score_text = f"{float(match.group(1)) / 10:.1f}".rstrip("0").rstrip(".")
+        return f"{label} {score_text}／10"
+
+    text = re.sub(
+        r"買進或加碼\s*(\d+(?:\.\d+)?)%",
+        lambda match: condition_score(match, "正向條件通過"),
+        text,
+    )
+    text = re.sub(
+        r"賣出或減碼\s*(\d+(?:\.\d+)?)%",
+        lambda match: condition_score(match, "風險條件通過"),
+        text,
+    )
+    text = re.sub(
+        r"(?:有效)?買\s*([0-9.]+)\s*/\s*賣\s*([0-9.]+)",
+        r"正向條件 \1 / 風險條件 \2",
+        text,
+    )
+
+    replacements = (
+        ("今日操作分群", "今日條件分群"),
+        ("個股操作訊號", "個股條件訊號"),
+        ("交易訊號怎麼用", "模型條件怎麼看"),
+        ("可小部位布局", "正向條件較完整"),
+        ("買／賣分數", "正向條件／風險條件分數"),
+        ("買/賣分數", "正向條件／風險條件分數"),
+        ("買賣分數", "正向條件／風險條件分數"),
+        ("強勢續抱", "趨勢條件仍成立"),
+        ("核心部位續抱觀察", "核心趨勢條件仍成立"),
+        ("核心部位可續抱觀察", "核心趨勢條件仍可觀察"),
+        ("核心部位可續抱", "核心趨勢條件仍可觀察"),
+        ("續抱 / 觀察", "趨勢成立 / 觀察"),
+        ("禁止追買", "追價風險偏高"),
+        ("不追買", "追價風險偏高"),
+        ("弱買進提醒", "正向條件初步成立"),
+        ("買進提醒", "正向條件成立"),
+        ("強買進訊號", "強正向條件"),
+        ("買進強訊號", "強正向條件"),
+        ("買進中訊號", "中度正向條件"),
+        ("買進弱訊號", "初步正向條件"),
+        ("強賣出訊號", "強風險條件"),
+        ("賣出強訊號", "強風險條件"),
+        ("賣出中訊號", "中度風險條件"),
+        ("賣出弱訊號", "風險條件增加"),
+        ("買進或加碼", "正向條件較完整"),
+        ("賣出或減碼", "風險條件增加"),
+        ("建議降低部位或暫緩操作", "風險條件升高，宜加強觀察"),
+        ("可考慮小部位或分批試單", "正向條件較完整，但仍需持續觀察"),
+        ("可考慮分批建立或降低部位", "正向或風險條件開始一致，需持續觀察"),
+        ("應優先控管部位風險", "部位風險值得優先關注"),
+        ("建議投入可用資金", "模型條件比例"),
+        ("建議再投入剩餘資金", "模型條件比例"),
+        ("可考慮投入剩餘資金", "模型條件比例"),
+        ("抱住核心部位", "核心趨勢條件仍成立"),
+        ("先守核心持股", "核心趨勢仍可觀察"),
+        ("保留核心持股", "核心趨勢仍可觀察"),
+        ("不清空核心部位", "核心趨勢仍需觀察"),
+        ("降低槓桿", "槓桿風險偏高"),
+        ("小幅降風險", "風險條件小幅增加"),
+        ("分批降風險", "風險條件逐步增加"),
+        ("保留現金比追訊號更重要", "缺乏明確正向條件，追逐訊號風險較高"),
+        ("賣在最高點", "辨識最高點"),
+        ("不一次打滿部位", "避免單一條件過度解讀"),
+        ("不建議每天重複交易", "不宜每天重複解讀"),
+        ("不建議每天重複操作", "不宜每天重複解讀"),
+        ("不建議每週重複操作", "不宜每週重複解讀"),
+        ("超跌加碼區", "位置偏低區"),
+        ("超跌買進", "位置偏低正向條件"),
+        ("超跌部署區", "位置偏低觀察區"),
+        ("黃金建倉區", "統計位置偏低區"),
+        ("時間補位提醒", "時間條件提醒"),
+        ("進行時間性補位", "時間條件觀察"),
+        ("買進分數", "正向條件分數"),
+        ("賣出分數", "風險條件分數"),
+        ("買進訊號", "正向條件"),
+        ("賣出訊號", "風險條件"),
+        ("買進條件", "正向條件"),
+        ("賣出條件", "風險條件"),
+        ("買進依據", "正向條件依據"),
+        ("賣出依據", "風險條件依據"),
+        ("買進門檻", "正向條件門檻"),
+        ("賣出門檻", "風險條件門檻"),
+        ("買進區", "正向條件區"),
+        ("賣出區", "風險條件區"),
+        ("停止買進", "停止新增曝險"),
+        ("禁止買進", "新增曝險受限"),
+        ("新增買進", "新增曝險"),
+        ("降低部位", "風險曝險偏高"),
+        ("降部位", "風險曝險偏高"),
+        ("加碼條件", "正向條件進一步成立"),
+        ("加碼主線", "正向條件主線"),
+        ("中長線布局", "中長線觀察"),
+        ("小部位布局", "低曝險觀察"),
+        ("分批試單", "分段觀察"),
+        ("小部位試單", "低曝險觀察"),
+        ("停損", "風險界線"),
+        ("停利", "獲利回吐風險"),
+        ("出清", "風險條件顯著增加"),
+        ("清空", "風險條件顯著增加"),
+        ("下車", "趨勢轉弱"),
+        ("重倉", "高曝險"),
+        ("建倉", "條件建立"),
+        ("補位", "條件補充"),
+        ("弱賣出", "弱風險條件"),
+        ("中強賣訊", "中強風險條件"),
+        ("賣訊", "風險條件"),
+        ("買訊", "正向條件"),
+        ("續抱", "趨勢條件仍成立"),
+        ("減碼", "風險條件增加"),
+        ("加碼", "正向條件增加"),
+        ("布局", "觀察"),
+        ("試單", "觀察"),
+        ("分批", "分段觀察"),
+        ("部位", "曝險"),
+        ("操作", "判讀"),
+        ("執行", "觀察"),
+        ("建議", "模型顯示"),
+        ("可考慮", "可觀察"),
+        ("買進", "正向條件"),
+        ("賣出", "風險條件"),
+    )
+    for source, replacement in replacements:
+        text = text.replace(source, replacement)
+    return text
+
+
 # ── 讀取設定 ────────────────────────────────────────────────
 def load_config() -> dict:
     with open(Path(__file__).parent / "config.json", "r", encoding="utf-8") as f:
@@ -2007,7 +2138,7 @@ def build_email_html(results: list, today: str, cfg: dict | None = None,
     details  = "".join(
         stock_html_block(n, t, r, note=r.get("stock_note",""))
         for n, t, r in results)
-    return (f'<!DOCTYPE html><html><head><meta charset="utf-8"></head>'
+    return neutralize_report_language(f'<!DOCTYPE html><html><head><meta charset="utf-8"></head>'
             f'<body style="font-family:Arial,sans-serif;max-width:720px;margin:0 auto;'
             f'padding:20px;background:#f4f6f8;">'
             f'<div style="background:#2c3e50;color:#fff;padding:20px;'
@@ -2277,7 +2408,7 @@ def build_public_report_html(results: list, today: str, cfg: dict | None = None,
     hold_group = _public_action_group(results, lambda r: "觀察" in str(r.get("trade_plan", {}).get("headline", "")))
     risk_group = _public_action_group(results, lambda r: "禁止" in str(r.get("trade_plan", {}).get("headline", "")) or str(r.get("level", "")).startswith(("SELL", "OVERHEATED")))
     market_notes = _public_market_notes(market, macro, buy_group, risk_group)
-    return (
+    return neutralize_report_language(
         f"<!DOCTYPE html><html><head><meta charset='utf-8'>{css}</head><body>"
         f"<div class='page'><div class='cover'><h1>被AI研究社｜每日台股分析</h1><div class='sub'>{date_text} 收盤後整理｜社群重點摘要</div></div>"
         f"<div class='section'><h2>市場快照</h2><div class='grid3'>"
@@ -2512,7 +2643,7 @@ def build_social_report_pages(results: list, today: str, cfg: dict | None = None
       <div class='cards'>{cards}</div>
       <div class='footer'>完整指標與評分細節請以 Email 報告為準。</div>
     </div></body></html>"""
-    return [page1, page2]
+    return [neutralize_report_language(page) for page in (page1, page2)]
 
 def save_social_report_pages(pages: list[str], today: str) -> list[Path]:
     paths = []
