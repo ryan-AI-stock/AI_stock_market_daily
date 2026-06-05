@@ -81,6 +81,34 @@ class NeutralizeReportLanguageTests(unittest.TestCase):
         ):
             self.assertNotIn(banned, result)
 
+    def test_public_report_applies_neutral_language(self):
+        result = {
+            "summary": "買進提醒",
+            "trade_plan": {"headline": "買進或加碼 50%", "reason": "可小部位布局"},
+            "level": "BUY_STRONG",
+            "border": "#000",
+            "close": 100,
+            "effective_buy": 50,
+            "effective_sell": 10,
+            "items": [],
+            "regime": {},
+            "b60": {},
+        }
+
+        html = sm.build_public_report_html(
+            [("台灣加權指數", "^TWII", result), ("台積電", "2330.TW", result)],
+            "2026-06-05",
+            cfg={},
+            macro={},
+            news_items=[],
+            market_events=[],
+        )
+
+        self.assertIn("正向條件通過 5／10", html)
+        self.assertIn("今日條件分群", html)
+        for banned in ("買進或加碼", "買進提醒", "可小部位布局", "今日操作分群"):
+            self.assertNotIn(banned, html)
+
 
 if __name__ == "__main__":
     unittest.main()
