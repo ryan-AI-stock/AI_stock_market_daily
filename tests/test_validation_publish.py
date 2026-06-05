@@ -4,10 +4,17 @@ from unittest.mock import patch
 
 import pandas as pd
 
+from daily_stock.validation_reports import validation_report_file_name
 import stock_market_tracking_system as sm
 
 
 class ValidationPublishTests(unittest.TestCase):
+    def test_builds_validation_report_file_name(self):
+        self.assertEqual(
+            validation_report_file_name(Path("public_report") / "每日台股報告.pdf", "2026-06-04"),
+            "每日台股報告_驗收_20260604.pdf",
+        )
+
     def test_trims_intraday_or_future_rows_to_complete_report_date(self):
         data = pd.DataFrame(
             {"Close": [100.0, 101.0, 102.0]},

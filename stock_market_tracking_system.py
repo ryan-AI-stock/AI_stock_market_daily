@@ -17,7 +17,13 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 
+from daily_stock.config import get_stock_cfg, load_config
 from daily_stock.report_contracts import get_report_date, validate_report_completeness
+from daily_stock.validation_reports import (
+    find_latest_common_market_date,
+    trim_market_data_to_report_date,
+    validation_report_file_name,
+)
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -195,50 +201,6 @@ def neutralize_report_language(content: str) -> str:
     for source, replacement in replacements:
         text = text.replace(source, replacement)
     return text
-
-
-# ── 讀取設定 ────────────────────────────────────────────────
-def load_config() -> dict:
-    with open(Path(__file__).parent / "config.json", "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def get_stock_cfg(stock: dict, global_cfg: dict) -> dict:
-    """
-    將全域設定與個股 overrides 合併，個股設定優先。
-    回傳該股票實際使用的完整設定。
-    """
-    ov  = stock.get("overrides", {})
-    thr = dict(global_cfg["thresholds"])
-    ma  = dict(global_cfg["ma_periods"])
-
-    # 覆蓋 thresholds
-    for key in ("kd_buy","kd_sell","bias20_buy","bias20_sell",
-                "bias60_p_low","bias60_p_high","vol_ma_period","obv_ma_period"):
-        if key in ov:
-            thr[key] = ov[key]
-
-    # 向下相容舊欄位名稱
-    if "bias_buy"  in thr and "bias20_buy"  not in thr: thr["bias20_buy"]  = thr["bias_buy"]
-    if "bias_sell" in thr and "bias20_sell" not in thr: thr["bias20_sell"] = thr["bias_sell"]
-
-    # 覆蓋 ma_periods
-    if "ma_periods" in ov:
-        ma.update(ov["ma_periods"])
-
-    return {
-        "thresholds":       thr,
-        "ma_periods":       ma,
-        "pyramid":          global_cfg.get("pyramid", {}),
-        "use_obv":          ov.get("use_obv",          True),
-        "use_vol_trend":    ov.get("use_vol_trend",     True),
-        "use_institutional":ov.get("use_institutional", True),
-        "use_fx":           ov.get("use_fx",            True),
-        "use_rates":        ov.get("use_rates",         True),
-        "macro_sensitivity": ov.get("macro_sensitivity", "market"),
-        "leverage_warning": ov.get("leverage_warning",  False),
-        "bias60_locked":    ov.get("bias60_locked",     True),
-    }
 
 
 def _parse_int(value) -> int:
@@ -2986,40 +2948,13 @@ def upload_validation_report_file(
     if not fixed_path or not folder_id:
         return None
     mime_type = "application/pdf" if fixed_path.suffix.lower() == ".pdf" else "text/html"
-    file_name = f"每日台股報告_驗收_{today.replace('-', '')}{fixed_path.suffix.lower()}"
     return upload_file_to_drive(
         fixed_path,
         folder_id,
         mime_type,
-        file_name=file_name,
+        file_name=validation_report_file_name(fixed_path, today),
         make_public=False,
     )
-
-
-def trim_market_data_to_report_date(df: pd.DataFrame, report_date: str) -> pd.DataFrame:
-    """Return market data available through the requested report date."""
-    trimmed = df.loc[df.index.strftime("%Y-%m-%d") <= report_date].copy()
-    if trimmed.empty:
-        raise ValueError(f"無 {report_date} 或更早的市場資料")
-    return trimmed
-
-
-def find_latest_common_market_date(
-    market_data_by_ticker: dict[str, pd.DataFrame],
-    latest_date: str,
-) -> str:
-    """Find the latest date available for every tracked ticker."""
-    common_dates: set[str] | None = None
-    for df in market_data_by_ticker.values():
-        dates = {
-            value
-            for value in df.index.strftime("%Y-%m-%d")
-            if value <= latest_date
-        }
-        common_dates = dates if common_dates is None else common_dates & dates
-    if not common_dates:
-        raise ValueError(f"所有追蹤標的在 {latest_date} 前沒有共同市場資料日")
-    return max(common_dates)
 
 
 # ── 發送 Email ───────────────────────────────────────────────
