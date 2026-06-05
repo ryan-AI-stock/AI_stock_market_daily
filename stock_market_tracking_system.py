@@ -21,8 +21,11 @@ from daily_stock.config import get_stock_cfg, load_config
 from daily_stock.drive_publish import (
     resolve_google_oauth_config,
     resolve_daily_report_folder_id,
+    resolve_public_report_fixed_name,
     resolve_public_report_file_id,
     resolve_public_report_folder_id,
+    resolve_public_report_mime_type,
+    resolve_self_report_mime_type,
 )
 from daily_stock.report_contracts import get_report_date, validate_report_completeness
 from daily_stock.runtime import parse_runtime_options
@@ -2790,7 +2793,7 @@ def upload_report_file_to_drive(file_path: Path, today: str, cfg: dict,
     try:
         print(f"使用 Google Drive {auth_mode} 憑證上傳自用報告")
         upload_name = file_name or file_path.name
-        upload_mime = mime_type or ("application/pdf" if file_path.suffix.lower() == ".pdf" else "image/png")
+        upload_mime = resolve_self_report_mime_type(file_path, mime_type)
         media = MediaFileUpload(str(file_path), mimetype=upload_mime, resumable=False)
         query = (
             f"'{folder_id}' in parents and "
@@ -2914,7 +2917,7 @@ def save_public_report_file(html: str, today: str, cfg: dict) -> Path | None:
     html_path = out_dir / "每日台股報告_暫存.html"
     html_path.write_text(html, encoding="utf-8")
     fmt = str(public_cfg.get("format", "pdf")).lower()
-    fixed_name = public_cfg.get("fixed_file_name") or "每日台股報告.pdf"
+    fixed_name = resolve_public_report_fixed_name(public_cfg)
     if fmt == "pdf":
         return render_report_pdf(html_path, str(out_dir / fixed_name), prefer_css_page_size=True)
     fixed_path = out_dir / fixed_name
@@ -2933,8 +2936,8 @@ def upload_public_report_file(fixed_path: Path | None, cfg: dict) -> str | None:
         return None
 
     make_public = bool(public_cfg.get("make_public", True))
-    fixed_name = public_cfg.get("fixed_file_name") or fixed_path.name
-    mime_type = "application/pdf" if fixed_path.suffix.lower() == ".pdf" else "text/html"
+    fixed_name = resolve_public_report_fixed_name(public_cfg, fixed_path.name)
+    mime_type = resolve_public_report_mime_type(fixed_path)
     fixed_file_id = resolve_public_report_file_id(public_cfg, os.environ)
     return upload_file_to_drive(fixed_path, folder_id, mime_type, fixed_name, make_public, fixed_file_id)
 
@@ -2947,7 +2950,7 @@ def upload_validation_report_file(
     """Upload an isolated validation PDF without touching formal report files."""
     if not fixed_path or not folder_id:
         return None
-    mime_type = "application/pdf" if fixed_path.suffix.lower() == ".pdf" else "text/html"
+    mime_type = resolve_public_report_mime_type(fixed_path)
     return upload_file_to_drive(
         fixed_path,
         folder_id,

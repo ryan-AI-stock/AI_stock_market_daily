@@ -1,11 +1,19 @@
 import unittest
+from pathlib import Path
 
 from daily_stock.drive_publish import (
+    DEFAULT_PUBLIC_REPORT_FILE_NAME,
+    HTML_MIME_TYPE,
     GOOGLE_DRIVE_SCOPES,
+    PDF_MIME_TYPE,
+    PNG_MIME_TYPE,
     resolve_daily_report_folder_id,
     resolve_google_oauth_config,
+    resolve_public_report_fixed_name,
     resolve_public_report_file_id,
     resolve_public_report_folder_id,
+    resolve_public_report_mime_type,
+    resolve_self_report_mime_type,
 )
 
 
@@ -72,6 +80,25 @@ class DrivePublishOptionTests(unittest.TestCase):
             "env-file",
         )
         self.assertEqual(resolve_public_report_file_id({"fixed_file_id": "config-file"}, {}), "config-file")
+
+    def test_self_report_mime_keeps_existing_pdf_or_png_behavior(self):
+        self.assertEqual(resolve_self_report_mime_type(Path("report.pdf")), PDF_MIME_TYPE)
+        self.assertEqual(resolve_self_report_mime_type(Path("report.png")), PNG_MIME_TYPE)
+        self.assertEqual(resolve_self_report_mime_type(Path("report.html")), PNG_MIME_TYPE)
+        self.assertEqual(
+            resolve_self_report_mime_type(Path("report.html"), "custom/type"),
+            "custom/type",
+        )
+
+    def test_public_report_mime_keeps_existing_pdf_or_html_behavior(self):
+        self.assertEqual(resolve_public_report_mime_type(Path("report.pdf")), PDF_MIME_TYPE)
+        self.assertEqual(resolve_public_report_mime_type(Path("report.html")), HTML_MIME_TYPE)
+        self.assertEqual(resolve_public_report_mime_type(Path("report.png")), HTML_MIME_TYPE)
+
+    def test_public_report_fixed_name_uses_config_then_fallback_then_default(self):
+        self.assertEqual(resolve_public_report_fixed_name({"fixed_file_name": "固定.pdf"}), "固定.pdf")
+        self.assertEqual(resolve_public_report_fixed_name({}, "fallback.html"), "fallback.html")
+        self.assertEqual(resolve_public_report_fixed_name({}), DEFAULT_PUBLIC_REPORT_FILE_NAME)
 
 
 if __name__ == "__main__":
