@@ -19,6 +19,7 @@ from pathlib import Path
 
 from daily_stock.config import get_stock_cfg, load_config
 from daily_stock.report_contracts import get_report_date, validate_report_completeness
+from daily_stock.runtime import parse_runtime_options
 from daily_stock.validation_reports import (
     find_latest_common_market_date,
     trim_market_data_to_report_date,
@@ -2991,8 +2992,9 @@ def main():
     cfg   = load_config()
     now_tw = datetime.now(TAIPEI_TZ)
     today = get_report_date(now_tw)
-    validation_folder_id = os.environ.get("REPORT_VALIDATION_DRIVE_FOLDER_ID", "").strip()
-    validation_mode = bool(validation_folder_id)
+    runtime_options = parse_runtime_options(os.environ)
+    validation_folder_id = runtime_options.validation_folder_id
+    validation_mode = runtime_options.validation_mode
     validation_market_data = {}
     if validation_mode:
         print("  驗收產報模式：預先確認所有追蹤標的共同完整資料日")
@@ -3012,10 +3014,7 @@ def main():
         f"｜報告週期={today}"
     )
     date_key = today.replace("-", "")
-    force_run = (
-        os.environ.get("FORCE_RUN_REPORT", "").strip().lower() in ("1", "true", "yes", "y")
-        or validation_mode
-    )
+    force_run = runtime_options.should_force_run
     if validation_mode:
         print("  驗收產報模式：只上傳驗收版，不更新正式報告、不寄送 Email")
     if force_run:
@@ -3109,7 +3108,7 @@ def main():
         print(f"已更新免費觀眾固定報告頁：{public_link}")
     elif not cfg.get("email", {}).get("enabled", True) and cfg.get("public_report", {}).get("enabled", False):
         msg = "Email 已關閉，但免費觀眾 Google Drive PDF 上傳失敗，發布流程中止"
-        if os.environ.get("GITHUB_ACTIONS", "").lower() == "true":
+        if runtime_options.github_actions:
             raise RuntimeError(msg)
         print(f"❌ {msg}")
 
@@ -3124,7 +3123,7 @@ def main():
             print(f"已上傳自用備份 PDF 至 Google Drive：{drive_link}")
         elif not cfg.get("email", {}).get("enabled", True) and cfg.get("drive_report", {}).get("enabled", False):
             msg = "Email 已關閉，但自用備份 Google Drive PDF 上傳失敗，發布流程中止"
-            if os.environ.get("GITHUB_ACTIONS", "").lower() == "true":
+            if runtime_options.github_actions:
                 raise RuntimeError(msg)
             print(f"❌ {msg}")
 
