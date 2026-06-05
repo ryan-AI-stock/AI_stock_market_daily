@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Mapping
+
+from daily_stock.report_contracts import get_report_date
 
 
 FORCE_RUN_TRUE_VALUES = {"1", "true", "yes", "y"}
@@ -24,11 +27,37 @@ class RuntimeOptions:
         return self.force_run_report or self.validation_mode
 
 
+@dataclass(frozen=True)
+class ReportRunContext:
+    now_tw: datetime
+    report_date: str
+    runtime_options: RuntimeOptions
+
+    @property
+    def date_key(self) -> str:
+        return self.report_date.replace("-", "")
+
+    def with_report_date(self, report_date: str) -> "ReportRunContext":
+        return ReportRunContext(
+            now_tw=self.now_tw,
+            report_date=report_date,
+            runtime_options=self.runtime_options,
+        )
+
+
 def parse_runtime_options(env: Mapping[str, str | None]) -> RuntimeOptions:
     return RuntimeOptions(
         validation_folder_id=str(env.get("REPORT_VALIDATION_DRIVE_FOLDER_ID") or "").strip(),
         force_run_report=_is_force_run_enabled(env.get("FORCE_RUN_REPORT")),
         github_actions=_is_github_actions(env.get("GITHUB_ACTIONS")),
+    )
+
+
+def build_report_run_context(now_tw: datetime, env: Mapping[str, str | None]) -> ReportRunContext:
+    return ReportRunContext(
+        now_tw=now_tw,
+        report_date=get_report_date(now_tw),
+        runtime_options=parse_runtime_options(env),
     )
 
 

@@ -28,7 +28,7 @@ from daily_stock.drive_publish import (
     resolve_self_report_mime_type,
 )
 from daily_stock.report_contracts import get_report_date, validate_report_completeness
-from daily_stock.runtime import parse_runtime_options
+from daily_stock.runtime import build_report_run_context
 from daily_stock.validation_reports import (
     find_latest_common_market_date,
     trim_market_data_to_report_date,
@@ -2992,9 +2992,10 @@ def send_email(cfg: dict, html: str, today: str) -> bool:
 # ── 主流程 ───────────────────────────────────────────────────
 def main():
     cfg   = load_config()
-    now_tw = datetime.now(TAIPEI_TZ)
-    today = get_report_date(now_tw)
-    runtime_options = parse_runtime_options(os.environ)
+    run_context = build_report_run_context(datetime.now(TAIPEI_TZ), os.environ)
+    now_tw = run_context.now_tw
+    today = run_context.report_date
+    runtime_options = run_context.runtime_options
     validation_folder_id = runtime_options.validation_folder_id
     validation_mode = runtime_options.validation_mode
     validation_market_data = {}
@@ -3010,12 +3011,13 @@ def main():
         common_date = find_latest_common_market_date(validation_market_data, today)
         if common_date != today:
             print(f"  驗收資料日由 {today} 回退至所有標的共同完整日 {common_date}")
-        today = common_date
+        run_context = run_context.with_report_date(common_date)
+        today = run_context.report_date
     print(
         f"[{now_tw.strftime('%Y-%m-%d %H:%M')}] 開始分析，共 {len(cfg['watchlist'])} 檔"
         f"｜報告週期={today}"
     )
-    date_key = today.replace("-", "")
+    date_key = run_context.date_key
     force_run = runtime_options.should_force_run
     if validation_mode:
         print("  驗收產報模式：只上傳驗收版，不更新正式報告、不寄送 Email")

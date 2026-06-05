@@ -1,6 +1,7 @@
 import unittest
+from datetime import datetime
 
-from daily_stock.runtime import parse_runtime_options
+from daily_stock.runtime import build_report_run_context, parse_runtime_options
 
 
 class RuntimeOptionsTests(unittest.TestCase):
@@ -33,6 +34,27 @@ class RuntimeOptionsTests(unittest.TestCase):
         for value in ("1", "yes", "y", "false", ""):
             with self.subTest(value=value):
                 self.assertFalse(parse_runtime_options({"GITHUB_ACTIONS": value}).github_actions)
+
+
+class ReportRunContextTests(unittest.TestCase):
+    def test_builds_report_date_and_date_key_from_cycle_rule(self):
+        context = build_report_run_context(datetime(2026, 6, 5, 14, 59), {})
+
+        self.assertEqual(context.report_date, "2026-06-04")
+        self.assertEqual(context.date_key, "20260604")
+
+    def test_keeps_runtime_options_with_report_date_override(self):
+        context = build_report_run_context(
+            datetime(2026, 6, 5, 15, 0),
+            {"REPORT_VALIDATION_DRIVE_FOLDER_ID": "folder"},
+        )
+        updated = context.with_report_date("2026-06-03")
+
+        self.assertEqual(updated.report_date, "2026-06-03")
+        self.assertEqual(updated.date_key, "20260603")
+        self.assertTrue(updated.runtime_options.validation_mode)
+        self.assertEqual(updated.runtime_options.validation_folder_id, "folder")
+        self.assertIs(context.runtime_options, updated.runtime_options)
 
 
 if __name__ == "__main__":
