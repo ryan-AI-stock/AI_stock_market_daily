@@ -2,7 +2,31 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Mapping
+
+
+GOOGLE_DRIVE_SCOPES = ("https://www.googleapis.com/auth/drive",)
+
+
+@dataclass(frozen=True)
+class GoogleOAuthConfig:
+    refresh_token: str
+    client_id: str
+    client_secret: str
+    scopes: tuple[str, ...] = GOOGLE_DRIVE_SCOPES
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.refresh_token and self.client_id and self.client_secret)
+
+
+def resolve_google_oauth_config(env: Mapping[str, str | None]) -> GoogleOAuthConfig:
+    return GoogleOAuthConfig(
+        refresh_token=str(env.get("GOOGLE_OAUTH_REFRESH_TOKEN") or "").strip(),
+        client_id=str(env.get("GOOGLE_OAUTH_CLIENT_ID") or "").strip(),
+        client_secret=str(env.get("GOOGLE_OAUTH_CLIENT_SECRET") or "").strip(),
+    )
 
 
 def resolve_daily_report_folder_id(drive_cfg: dict, env: Mapping[str, str | None]) -> str | None:

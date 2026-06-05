@@ -19,6 +19,7 @@ from pathlib import Path
 
 from daily_stock.config import get_stock_cfg, load_config
 from daily_stock.drive_publish import (
+    resolve_google_oauth_config,
     resolve_daily_report_folder_id,
     resolve_public_report_file_id,
     resolve_public_report_folder_id,
@@ -2695,11 +2696,8 @@ def render_report_pdf(html_path: Path, output_name: str, prefer_css_page_size: b
 
 
 def _build_google_drive_credentials():
-    scopes = ["https://www.googleapis.com/auth/drive"]
-    refresh_token = os.environ.get("GOOGLE_OAUTH_REFRESH_TOKEN", "").strip()
-    client_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "").strip()
-    client_secret = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
-    if not (refresh_token and client_id and client_secret):
+    oauth_cfg = resolve_google_oauth_config(os.environ)
+    if not oauth_cfg.is_configured:
         print("⚠️  未設定 Google OAuth 憑證，跳過 Google Drive 操作")
         return None, ""
     try:
@@ -2707,11 +2705,11 @@ def _build_google_drive_credentials():
         from google.auth.transport.requests import Request
         credentials = Credentials(
             token=None,
-            refresh_token=refresh_token,
+            refresh_token=oauth_cfg.refresh_token,
             token_uri="https://oauth2.googleapis.com/token",
-            client_id=client_id,
-            client_secret=client_secret,
-            scopes=scopes,
+            client_id=oauth_cfg.client_id,
+            client_secret=oauth_cfg.client_secret,
+            scopes=list(oauth_cfg.scopes),
         )
         credentials.refresh(Request())
         return credentials, "OAuth"
