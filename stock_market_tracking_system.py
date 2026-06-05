@@ -18,6 +18,11 @@ from email.mime.text import MIMEText
 from pathlib import Path
 
 from daily_stock.config import get_stock_cfg, load_config
+from daily_stock.drive_publish import (
+    resolve_daily_report_folder_id,
+    resolve_public_report_file_id,
+    resolve_public_report_folder_id,
+)
 from daily_stock.report_contracts import get_report_date, validate_report_completeness
 from daily_stock.runtime import parse_runtime_options
 from daily_stock.validation_reports import (
@@ -2733,7 +2738,7 @@ def drive_file_exists(file_name: str, cfg: dict) -> bool:
     if not drive_cfg.get("enabled", False):
         return False
 
-    folder_id = os.environ.get("DAILY_REPORT_DRIVE_FOLDER_ID") or drive_cfg.get("folder_id")
+    folder_id = resolve_daily_report_folder_id(drive_cfg, os.environ)
     if not folder_id:
         return False
 
@@ -2768,7 +2773,7 @@ def upload_report_file_to_drive(file_path: Path, today: str, cfg: dict,
     if not drive_cfg.get("enabled", False):
         return None
 
-    folder_id = os.environ.get("DAILY_REPORT_DRIVE_FOLDER_ID") or drive_cfg.get("folder_id")
+    folder_id = resolve_daily_report_folder_id(drive_cfg, os.environ)
     if not folder_id:
         print("⚠️  未設定 Google Drive folder_id，跳過上傳報告檔")
         return None
@@ -2924,11 +2929,7 @@ def upload_public_report_file(fixed_path: Path | None, cfg: dict) -> str | None:
     if not public_cfg.get("enabled", False) or not fixed_path:
         return None
 
-    folder_id = (
-        os.environ.get("PUBLIC_REPORT_DRIVE_FOLDER_ID")
-        or os.environ.get("FREE_REPORT_DRIVE_FOLDER_ID")
-        or public_cfg.get("folder_id")
-    )
+    folder_id = resolve_public_report_folder_id(public_cfg, os.environ)
     if not folder_id:
         print("⚠️  未設定免費觀眾 Google Drive folder_id，跳過上傳固定報告頁")
         return None
@@ -2936,7 +2937,7 @@ def upload_public_report_file(fixed_path: Path | None, cfg: dict) -> str | None:
     make_public = bool(public_cfg.get("make_public", True))
     fixed_name = public_cfg.get("fixed_file_name") or fixed_path.name
     mime_type = "application/pdf" if fixed_path.suffix.lower() == ".pdf" else "text/html"
-    fixed_file_id = os.environ.get("PUBLIC_REPORT_DRIVE_FILE_ID") or public_cfg.get("fixed_file_id")
+    fixed_file_id = resolve_public_report_file_id(public_cfg, os.environ)
     return upload_file_to_drive(fixed_path, folder_id, mime_type, fixed_name, make_public, fixed_file_id)
 
 
