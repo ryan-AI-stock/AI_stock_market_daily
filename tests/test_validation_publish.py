@@ -2,10 +2,32 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
+import pandas as pd
+
 import stock_market_tracking_system as sm
 
 
 class ValidationPublishTests(unittest.TestCase):
+    def test_trims_intraday_or_future_rows_to_complete_report_date(self):
+        data = pd.DataFrame(
+            {"Close": [100.0, 101.0, 102.0]},
+            index=pd.to_datetime(["2026-06-03", "2026-06-04", "2026-06-05"]),
+        )
+
+        trimmed = sm.trim_market_data_to_report_date(data, "2026-06-04")
+
+        self.assertEqual(trimmed.index[-1].strftime("%Y-%m-%d"), "2026-06-04")
+        self.assertEqual(len(trimmed), 2)
+
+    def test_rejects_validation_date_without_market_data(self):
+        data = pd.DataFrame(
+            {"Close": [100.0]},
+            index=pd.to_datetime(["2026-06-05"]),
+        )
+
+        with self.assertRaisesRegex(ValueError, "無 2026-06-04"):
+            sm.trim_market_data_to_report_date(data, "2026-06-04")
+
     @patch("stock_market_tracking_system.upload_file_to_drive")
     def test_uploads_isolated_validation_report(self, upload_file_to_drive):
         upload_file_to_drive.return_value = "https://drive.google.com/file/d/test/view"

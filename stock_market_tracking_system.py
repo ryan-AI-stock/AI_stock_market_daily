@@ -2996,6 +2996,14 @@ def upload_validation_report_file(
     )
 
 
+def trim_market_data_to_report_date(df: pd.DataFrame, report_date: str) -> pd.DataFrame:
+    """Return market data available through the requested report date."""
+    trimmed = df.loc[df.index.strftime("%Y-%m-%d") <= report_date].copy()
+    if trimmed.empty:
+        raise ValueError(f"無 {report_date} 或更早的市場資料")
+    return trimmed
+
+
 # ── 發送 Email ───────────────────────────────────────────────
 def send_email(cfg: dict, html: str, today: str) -> bool:
     """Retained optional delivery channel; do not remove while email compatibility is required."""
@@ -3074,6 +3082,8 @@ def main():
         try:
             scfg = get_stock_cfg(stock, cfg)
             df   = fetch_data(ticker, cfg["lookback_days"])
+            if validation_mode:
+                df = trim_market_data_to_report_date(df, today)
             data_date = df.index[-1].strftime("%Y-%m-%d")
             df   = calc_indicators(df, scfg)
             inst = fetch_institutional(ticker) if scfg.get("use_institutional", True) else None
