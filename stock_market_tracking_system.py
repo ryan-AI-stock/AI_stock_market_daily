@@ -3004,6 +3004,24 @@ def trim_market_data_to_report_date(df: pd.DataFrame, report_date: str) -> pd.Da
     return trimmed
 
 
+def find_latest_common_market_date(
+    market_data_by_ticker: dict[str, pd.DataFrame],
+    latest_date: str,
+) -> str:
+    """Find the latest date available for every tracked ticker."""
+    common_dates: set[str] | None = None
+    for df in market_data_by_ticker.values():
+        dates = {
+            value
+            for value in df.index.strftime("%Y-%m-%d")
+            if value <= latest_date
+        }
+        common_dates = dates if common_dates is None else common_dates & dates
+    if not common_dates:
+        raise ValueError(f"所有追蹤標的在 {latest_date} 前沒有共同市場資料日")
+    return max(common_dates)
+
+
 # ── 發送 Email ───────────────────────────────────────────────
 def send_email(cfg: dict, html: str, today: str) -> bool:
     """Retained optional delivery channel; do not remove while email compatibility is required."""
@@ -3038,13 +3056,27 @@ def main():
     cfg   = load_config()
     now_tw = datetime.now(TAIPEI_TZ)
     today = get_report_date(now_tw)
+    validation_folder_id = os.environ.get("REPORT_VALIDATION_DRIVE_FOLDER_ID", "").strip()
+    validation_mode = bool(validation_folder_id)
+    validation_market_data = {}
+    if validation_mode:
+        print("  驗收產報模式：預先確認所有追蹤標的共同完整資料日")
+        validation_market_data = {
+            stock["ticker"]: trim_market_data_to_report_date(
+                fetch_data(stock["ticker"], cfg["lookback_days"]),
+                today,
+            )
+            for stock in cfg["watchlist"]
+        }
+        common_date = find_latest_common_market_date(validation_market_data, today)
+        if common_date != today:
+            print(f"  驗收資料日由 {today} 回退至所有標的共同完整日 {common_date}")
+        today = common_date
     print(
         f"[{now_tw.strftime('%Y-%m-%d %H:%M')}] 開始分析，共 {len(cfg['watchlist'])} 檔"
         f"｜報告週期={today}"
     )
     date_key = today.replace("-", "")
-    validation_folder_id = os.environ.get("REPORT_VALIDATION_DRIVE_FOLDER_ID", "").strip()
-    validation_mode = bool(validation_folder_id)
     force_run = (
         os.environ.get("FORCE_RUN_REPORT", "").strip().lower() in ("1", "true", "yes", "y")
         or validation_mode
@@ -3081,7 +3113,10 @@ def main():
         print(f"  {name} ({ticker}) ...", end=" ")
         try:
             scfg = get_stock_cfg(stock, cfg)
-            df   = fetch_data(ticker, cfg["lookback_days"])
+            df = validation_market_data[ticker] if validation_mode else fetch_data(
+                ticker,
+                cfg["lookback_days"],
+            )
             if validation_mode:
                 df = trim_market_data_to_report_date(df, today)
             data_date = df.index[-1].strftime("%Y-%m-%d")

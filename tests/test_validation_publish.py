@@ -28,6 +28,38 @@ class ValidationPublishTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "無 2026-06-04"):
             sm.trim_market_data_to_report_date(data, "2026-06-04")
 
+    def test_finds_latest_common_complete_market_date(self):
+        market_data = {
+            "^TWII": pd.DataFrame(
+                {"Close": [100.0, 101.0]},
+                index=pd.to_datetime(["2026-06-02", "2026-06-03"]),
+            ),
+            "2330.TW": pd.DataFrame(
+                {"Close": [100.0, 101.0]},
+                index=pd.to_datetime(["2026-06-03", "2026-06-04"]),
+            ),
+        }
+
+        self.assertEqual(
+            sm.find_latest_common_market_date(market_data, "2026-06-04"),
+            "2026-06-03",
+        )
+
+    def test_rejects_when_tickers_have_no_common_market_date(self):
+        market_data = {
+            "^TWII": pd.DataFrame(
+                {"Close": [100.0]},
+                index=pd.to_datetime(["2026-06-03"]),
+            ),
+            "2330.TW": pd.DataFrame(
+                {"Close": [100.0]},
+                index=pd.to_datetime(["2026-06-04"]),
+            ),
+        }
+
+        with self.assertRaisesRegex(ValueError, "沒有共同市場資料日"):
+            sm.find_latest_common_market_date(market_data, "2026-06-04")
+
     @patch("stock_market_tracking_system.upload_file_to_drive")
     def test_uploads_isolated_validation_report(self, upload_file_to_drive):
         upload_file_to_drive.return_value = "https://drive.google.com/file/d/test/view"
