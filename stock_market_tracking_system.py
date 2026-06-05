@@ -2977,6 +2977,25 @@ def upload_public_report_file(fixed_path: Path | None, cfg: dict) -> str | None:
     return upload_file_to_drive(fixed_path, folder_id, mime_type, fixed_name, make_public, fixed_file_id)
 
 
+def upload_validation_report_file(
+    fixed_path: Path | None,
+    folder_id: str,
+    today: str,
+) -> str | None:
+    """Upload an isolated validation PDF without touching formal report files."""
+    if not fixed_path or not folder_id:
+        return None
+    mime_type = "application/pdf" if fixed_path.suffix.lower() == ".pdf" else "text/html"
+    file_name = f"每日台股報告_驗收_{today.replace('-', '')}{fixed_path.suffix.lower()}"
+    return upload_file_to_drive(
+        fixed_path,
+        folder_id,
+        mime_type,
+        file_name=file_name,
+        make_public=False,
+    )
+
+
 # ── 發送 Email ───────────────────────────────────────────────
 def send_email(cfg: dict, html: str, today: str) -> bool:
     """Retained optional delivery channel; do not remove while email compatibility is required."""
@@ -3016,7 +3035,14 @@ def main():
         f"｜報告週期={today}"
     )
     date_key = today.replace("-", "")
-    force_run = os.environ.get("FORCE_RUN_REPORT", "").strip().lower() in ("1", "true", "yes", "y")
+    validation_folder_id = os.environ.get("REPORT_VALIDATION_DRIVE_FOLDER_ID", "").strip()
+    validation_mode = bool(validation_folder_id)
+    force_run = (
+        os.environ.get("FORCE_RUN_REPORT", "").strip().lower() in ("1", "true", "yes", "y")
+        or validation_mode
+    )
+    if validation_mode:
+        print("  驗收產報模式：只上傳驗收版，不更新正式報告、不寄送 Email")
     if force_run:
         print("  手動強制執行：略過同日已產出檢查")
     if not force_run and drive_file_exists(f"每日台股報告_{date_key}.pdf", cfg):
@@ -3076,6 +3102,17 @@ def main():
     print(f"\n已產生 Email 預覽：{preview_path}")
     public_html = build_public_report_html(results, today, cfg, macro, news_items, market_events)
     public_report_path = save_public_report_file(public_html, today, cfg)
+
+    if validation_mode:
+        validation_link = upload_validation_report_file(
+            public_report_path,
+            validation_folder_id,
+            today,
+        )
+        if not validation_link:
+            raise RuntimeError("驗收版 Google Drive PDF 上傳失敗")
+        print(f"✅ 已上傳驗收版完整日報：{validation_link}")
+        return
 
     if cfg.get("email", {}).get("enabled", True):
         print(f"\n發送 Email 至 {cfg['email']['to']} ...")

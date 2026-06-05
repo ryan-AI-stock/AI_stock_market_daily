@@ -15,6 +15,11 @@ on:
         options:
           - 'false'
           - 'true'
+      validation_folder_id:
+        description: '僅上傳驗收版 PDF 至此 Google Drive 資料夾 ID；不更新正式報告或寄信'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   run-signal:
@@ -45,4 +50,5 @@ jobs:
           DAILY_REPORT_DRIVE_FOLDER_ID: ${{ secrets.DAILY_REPORT_DRIVE_FOLDER_ID }}
           PUBLIC_REPORT_DRIVE_FOLDER_ID: ${{ vars.PUBLIC_REPORT_DRIVE_FOLDER_ID }}
           FORCE_RUN_REPORT: ${{ github.event.inputs.force_run || 'false' }}
+          REPORT_VALIDATION_DRIVE_FOLDER_ID: ${{ github.event.inputs.validation_folder_id || '' }}
         run: python stock_market_tracking_system.py
