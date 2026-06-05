@@ -27,6 +27,7 @@ from daily_stock.drive_publish import (
     resolve_public_report_mime_type,
     resolve_self_report_mime_type,
 )
+from daily_stock.logging_utils import log_message
 from daily_stock.report_contracts import get_report_date, validate_report_completeness
 from daily_stock.runtime import build_report_run_context
 from daily_stock.validation_reports import (
@@ -2990,65 +2991,39 @@ def send_email(cfg: dict, html: str, today: str) -> bool:
 
 
 # ── 主流程 ───────────────────────────────────────────────────
-def main():
-    cfg   = load_config()
-    run_context = build_report_run_context(datetime.now(TAIPEI_TZ), os.environ)
-    now_tw = run_context.now_tw
-    today = run_context.report_date
-    runtime_options = run_context.runtime_options
-    validation_folder_id = runtime_options.validation_folder_id
-    validation_mode = runtime_options.validation_mode
-    validation_market_data = {}
-    if validation_mode:
-        print("  驗收產報模式：預先確認所有追蹤標的共同完整資料日")
-        validation_market_data = {
-            stock["ticker"]: trim_market_data_to_report_date(
-                fetch_data(stock["ticker"], cfg["lookback_days"]),
-                today,
-            )
-            for stock in cfg["watchlist"]
-        }
-        common_date = find_latest_common_market_date(validation_market_data, today)
-        if common_date != today:
-            print(f"  驗收資料日由 {today} 回退至所有標的共同完整日 {common_date}")
-        run_context = run_context.with_report_date(common_date)
-        today = run_context.report_date
-    print(
-        f"[{now_tw.strftime('%Y-%m-%d %H:%M')}] 開始分析，共 {len(cfg['watchlist'])} 檔"
-        f"｜報告週期={today}"
-    )
-    date_key = run_context.date_key
-    force_run = runtime_options.should_force_run
-    if validation_mode:
-        print("  驗收產報模式：只上傳驗收版，不更新正式報告、不寄送 Email")
-    if force_run:
-        print("  手動強制執行：略過同日已產出檢查")
-    if not force_run and drive_file_exists(f"每日台股報告_{date_key}.pdf", cfg):
-        return
-
+def fetch_report_market_inputs(cfg: dict, today: str) -> tuple[dict, list, list]:
     macro = fetch_market_context()
     if macro.get("fx"):
-        print(f"  總體環境：美元/台幣 {macro['fx']['value']:.3f}", end="")
+        log_message(f"  總體環境：美元/台幣 {macro['fx']['value']:.3f}", end="")
     if macro.get("rates"):
-        print(f"｜美10年債 {macro['rates']['value']:.2f}%", end="")
+        log_message(f"｜美10年債 {macro['rates']['value']:.2f}%", end="")
     if macro.get("fx") or macro.get("rates"):
-        print()
+        log_message()
     elif macro.get("errors"):
-        print(f"  總體環境資料暫不可用：{'；'.join(macro['errors'])}")
+        log_message(f"  總體環境資料暫不可用：{'；'.join(macro['errors'])}")
 
     market_events = fetch_auto_market_events(cfg, today)
-    print(f"  自動重大事件掃描：取得 {len(market_events)} 則高關聯事件")
+    log_message(f"  自動重大事件掃描：取得 {len(market_events)} 則高關聯事件")
 
     news_items = fetch_auto_news(cfg)
-    print(f"  自動新聞掃描：取得 {len(news_items)} 則高關聯新聞")
+    log_message(f"  自動新聞掃描：取得 {len(news_items)} 則高關聯新聞")
+    return macro, market_events, news_items
 
+
+def analyze_watchlist(
+    cfg: dict,
+    today: str,
+    validation_mode: bool,
+    validation_market_data: dict,
+    macro: dict,
+) -> tuple[list, list]:
     results = []
     failures = []
     for stock in cfg["watchlist"]:
         ticker = stock["ticker"]
         name   = stock["name"]
         note   = stock.get("note", "")
-        print(f"  {name} ({ticker}) ...", end=" ")
+        log_message(f"  {name} ({ticker}) ...", end=" ")
         try:
             scfg = get_stock_cfg(stock, cfg)
             df = validation_market_data[ticker] if validation_mode else fetch_data(
@@ -3065,7 +3040,7 @@ def main():
             r["stock_note"] = note
             r["data_date"] = data_date
             results.append((name, ticker, r))
-            print(
+            log_message(
                 f"{r['emoji']} {r['summary']} | "
                 f"資料日={data_date} | "
                 f"有效買{r['effective_buy']:.0f}/賣{r['effective_sell']:.0f} "
@@ -3075,14 +3050,26 @@ def main():
         except Exception as e:
             error = f"{type(e).__name__}: {e}"
             failures.append({"name": name, "ticker": ticker, "error": error})
-            print(f"❌ {error}")
+            log_message(f"❌ {error}")
             traceback.print_exc()
+    return results, failures
 
-    validate_report_completeness(results, failures, cfg["watchlist"], today)
 
+def publish_report_outputs(
+    cfg: dict,
+    today: str,
+    date_key: str,
+    results: list,
+    macro: dict,
+    news_items: list,
+    market_events: list,
+    validation_mode: bool,
+    validation_folder_id: str,
+    runtime_options,
+) -> None:
     html = build_email_html(results, today, cfg, macro, news_items, market_events)
     preview_path = save_email_preview(html)
-    print(f"\n已產生 Email 預覽：{preview_path}")
+    log_message(f"\n已產生 Email 預覽：{preview_path}")
     public_html = build_public_report_html(results, today, cfg, macro, news_items, market_events)
     public_report_path = save_public_report_file(public_html, today, cfg)
 
@@ -3094,42 +3081,96 @@ def main():
         )
         if not validation_link:
             raise RuntimeError("驗收版 Google Drive PDF 上傳失敗")
-        print(f"✅ 已上傳驗收版完整日報：{validation_link}")
+        log_message(f"✅ 已上傳驗收版完整日報：{validation_link}")
         return
 
     if cfg.get("email", {}).get("enabled", True):
-        print(f"\n發送 Email 至 {cfg['email']['to']} ...")
+        log_message(f"\n發送 Email 至 {cfg['email']['to']} ...")
         try:
             if send_email(cfg, html, today):
-                print("✅ Email 發送成功")
+                log_message("✅ Email 發送成功")
         except Exception as e:
-            print(f"❌ Email 失敗：{e}")
+            log_message(f"❌ Email 失敗：{e}")
     else:
-        print("\nEmail 發送已關閉，略過寄信")
+        log_message("\nEmail 發送已關閉，略過寄信")
 
     public_link = upload_public_report_file(public_report_path, cfg)
     if public_link:
-        print(f"已更新免費觀眾固定報告頁：{public_link}")
+        log_message(f"已更新免費觀眾固定報告頁：{public_link}")
     elif not cfg.get("email", {}).get("enabled", True) and cfg.get("public_report", {}).get("enabled", False):
         msg = "Email 已關閉，但免費觀眾 Google Drive PDF 上傳失敗，發布流程中止"
         if runtime_options.github_actions:
             raise RuntimeError(msg)
-        print(f"❌ {msg}")
+        log_message(f"❌ {msg}")
 
     backup_pdf = render_report_pdf(preview_path, f"每日台股報告_{date_key}.pdf")
     drive_link = None
     if backup_pdf:
-        print(f"已產生自用備份 PDF：{backup_pdf}")
+        log_message(f"已產生自用備份 PDF：{backup_pdf}")
         drive_link = upload_report_file_to_drive(
             backup_pdf, today, cfg, file_name=backup_pdf.name, mime_type="application/pdf"
         )
         if drive_link:
-            print(f"已上傳自用備份 PDF 至 Google Drive：{drive_link}")
+            log_message(f"已上傳自用備份 PDF 至 Google Drive：{drive_link}")
         elif not cfg.get("email", {}).get("enabled", True) and cfg.get("drive_report", {}).get("enabled", False):
             msg = "Email 已關閉，但自用備份 Google Drive PDF 上傳失敗，發布流程中止"
             if runtime_options.github_actions:
                 raise RuntimeError(msg)
-            print(f"❌ {msg}")
+            log_message(f"❌ {msg}")
+
+
+def main():
+    cfg   = load_config()
+    run_context = build_report_run_context(datetime.now(TAIPEI_TZ), os.environ)
+    now_tw = run_context.now_tw
+    today = run_context.report_date
+    runtime_options = run_context.runtime_options
+    validation_folder_id = runtime_options.validation_folder_id
+    validation_mode = runtime_options.validation_mode
+    validation_market_data = {}
+    if validation_mode:
+        log_message("  驗收產報模式：預先確認所有追蹤標的共同完整資料日")
+        validation_market_data = {
+            stock["ticker"]: trim_market_data_to_report_date(
+                fetch_data(stock["ticker"], cfg["lookback_days"]),
+                today,
+            )
+            for stock in cfg["watchlist"]
+        }
+        common_date = find_latest_common_market_date(validation_market_data, today)
+        if common_date != today:
+            log_message(f"  驗收資料日由 {today} 回退至所有標的共同完整日 {common_date}")
+        run_context = run_context.with_report_date(common_date)
+        today = run_context.report_date
+    log_message(
+        f"[{now_tw.strftime('%Y-%m-%d %H:%M')}] 開始分析，共 {len(cfg['watchlist'])} 檔"
+        f"｜報告週期={today}"
+    )
+    date_key = run_context.date_key
+    force_run = runtime_options.should_force_run
+    if validation_mode:
+        log_message("  驗收產報模式：只上傳驗收版，不更新正式報告、不寄送 Email")
+    if force_run:
+        log_message("  手動強制執行：略過同日已產出檢查")
+    if not force_run and drive_file_exists(f"每日台股報告_{date_key}.pdf", cfg):
+        return
+
+    macro, market_events, news_items = fetch_report_market_inputs(cfg, today)
+    results, failures = analyze_watchlist(cfg, today, validation_mode, validation_market_data, macro)
+
+    validate_report_completeness(results, failures, cfg["watchlist"], today)
+    publish_report_outputs(
+        cfg,
+        today,
+        date_key,
+        results,
+        macro,
+        news_items,
+        market_events,
+        validation_mode,
+        validation_folder_id,
+        runtime_options,
+    )
 
 
 
