@@ -74,4 +74,5 @@ jobs:
           PUBLIC_REPORT_DRIVE_FOLDER_ID: ${{ vars.PUBLIC_REPORT_DRIVE_FOLDER_ID }}
           FORCE_RUN_REPORT: ${{ github.event.inputs.force_run || 'false' }}
           REPORT_VALIDATION_DRIVE_FOLDER_ID: ${{ github.event.inputs.validation_folder_id || '' }}
+          REPORT_DATE: ${{ steps.schedule-gate.outputs.target_date || '' }}
         run: python stock_market_tracking_system.py

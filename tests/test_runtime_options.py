@@ -43,6 +43,19 @@ class ReportRunContextTests(unittest.TestCase):
         self.assertEqual(context.report_date, "2026-06-04")
         self.assertEqual(context.date_key, "20260604")
 
+    def test_report_date_env_overrides_cycle_rule(self):
+        context = build_report_run_context(
+            datetime(2026, 6, 6, 15, 0),
+            {"REPORT_DATE": "2026-06-05"},
+        )
+
+        self.assertEqual(context.report_date, "2026-06-05")
+        self.assertEqual(context.date_key, "20260605")
+
+    def test_report_date_env_rejects_invalid_value(self):
+        with self.assertRaises(ValueError):
+            build_report_run_context(datetime(2026, 6, 6, 15, 0), {"REPORT_DATE": "20260605"})
+
     def test_keeps_runtime_options_with_report_date_override(self):
         context = build_report_run_context(
             datetime(2026, 6, 5, 15, 0),

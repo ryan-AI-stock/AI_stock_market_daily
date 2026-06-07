@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Mapping
 
 from daily_stock.report_contracts import get_report_date
@@ -56,7 +56,7 @@ def parse_runtime_options(env: Mapping[str, str | None]) -> RuntimeOptions:
 def build_report_run_context(now_tw: datetime, env: Mapping[str, str | None]) -> ReportRunContext:
     return ReportRunContext(
         now_tw=now_tw,
-        report_date=get_report_date(now_tw),
+        report_date=_report_date_override(env.get("REPORT_DATE")) or get_report_date(now_tw),
         runtime_options=parse_runtime_options(env),
     )
 
@@ -67,3 +67,12 @@ def _is_force_run_enabled(value: str | None) -> bool:
 
 def _is_github_actions(value: str | None) -> bool:
     return str(value or "").strip().lower() == "true"
+
+
+def _report_date_override(value: str | None) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if len(raw) != 10 or raw[4] != "-" or raw[7] != "-":
+        raise ValueError("REPORT_DATE must use YYYY-MM-DD format")
+    return date.fromisoformat(raw).isoformat()
