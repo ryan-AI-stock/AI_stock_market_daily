@@ -37,12 +37,35 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: 取得共用排程規則
+        uses: actions/checkout@v4
+        with:
+          repository: ryan-AI-stock/AI_stock_schedule_rules
+          path: schedule_rules
+
+      - name: 檢查交易日排程
+        id: schedule-gate
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "reason=workflow_dispatch_bypass" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          PYTHONPATH=schedule_rules python -m stock_schedule_rules.gate --profile daily --github-output "$GITHUB_OUTPUT"
+
+      - name: 略過非交易日排程
+        if: github.event_name == 'schedule' && steps.schedule-gate.outputs.should_run != 'true'
+        run: echo "Schedule gate skipped this run. reason=${{ steps.schedule-gate.outputs.reason }}"
+
       - name: 安裝套件
+        if: github.event_name == 'workflow_dispatch' || steps.schedule-gate.outputs.should_run == 'true'
         run: |
           pip install yfinance pandas requests playwright google-api-python-client google-auth
           playwright install --with-deps chromium
 
       - name: 執行訊號分析
+        if: github.event_name == 'workflow_dispatch' || steps.schedule-gate.outputs.should_run == 'true'
         env:
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
           GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
