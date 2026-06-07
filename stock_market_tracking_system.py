@@ -2386,7 +2386,7 @@ def build_public_report_html(results: list, today: str, cfg: dict | None = None,
     market_notes = _public_market_notes(market, macro, buy_group, risk_group)
     return neutralize_report_language(
         f"<!DOCTYPE html><html><head><meta charset='utf-8'>{css}</head><body>"
-        f"<div class='page'><div class='cover'><h1>被AI研究社｜每日台股分析</h1><div class='sub'>{date_text} 收盤後整理｜社群重點摘要</div></div>"
+        f"<div class='page'><div class='cover'><h1>被AI研究所｜每日台股分析</h1><div class='sub'>{date_text} 收盤後整理｜社群重點摘要</div></div>"
         f"<div class='section'><h2>市場快照</h2><div class='grid3'>"
         f"<div class='metric'><div class='label'>台股加權</div><div class='value'>{market.get('close',0):.2f}</div></div>"
         f"<div class='metric'><div class='label'>美元/台幣</div><div class='value'>{fx_text}</div></div>"
