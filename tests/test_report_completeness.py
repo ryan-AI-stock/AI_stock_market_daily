@@ -56,6 +56,18 @@ class GetReportDateTests(unittest.TestCase):
         self.assertEqual(sm.get_report_date(datetime(2026, 6, 8, 14, 59)), "2026-06-05")
 
 
+class PublicReportCompletionTests(unittest.TestCase):
+    def test_drive_modified_time_is_current_cycle_after_15_taipei(self):
+        self.assertTrue(
+            sm.drive_modified_time_is_current_cycle("2026-06-08T07:05:00Z", "2026-06-08")
+        )
+
+    def test_drive_modified_time_is_not_current_cycle_before_15_taipei(self):
+        self.assertFalse(
+            sm.drive_modified_time_is_current_cycle("2026-06-08T06:59:59Z", "2026-06-08")
+        )
+
+
 class NeutralizeReportLanguageTests(unittest.TestCase):
     def test_replaces_transaction_instructions_without_changing_html(self):
         source = (

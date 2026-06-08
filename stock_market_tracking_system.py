@@ -51,6 +51,7 @@ WARN_COLOR = "#e67e22"
 INFO_COLOR = "#3498db"
 NEUTRAL_COLOR = "#95a5a6"
 TAIPEI_TZ = timezone(timedelta(hours=8))
+LEGACY_SELF_BACKUP_REPORT_ENABLED = False
 
 WEIGHTS = {
     "trend": 18,
@@ -2736,6 +2737,11 @@ def build_google_drive_service():
 
 
 def drive_file_exists(file_name: str, cfg: dict) -> bool:
+    """Legacy dated self-backup PDF completion check.
+
+    Retained for compatibility, but the normal daily flow now uses the public
+    fixed report modified time instead of generating 每日台股報告_YYYYMMDD.pdf.
+    """
     drive_cfg = cfg.get("drive_report", {})
     if not drive_cfg.get("enabled", False):
         return False
@@ -2767,6 +2773,72 @@ def drive_file_exists(file_name: str, cfg: dict) -> bool:
     except Exception as exc:
         print(f"⚠️  檢查 Google Drive 既有檔案失敗，繼續執行避免漏寄：{exc}")
     return False
+
+
+def report_cycle_start(report_date: str) -> datetime:
+    return datetime.strptime(report_date, "%Y-%m-%d").replace(
+        hour=15,
+        minute=0,
+        second=0,
+        microsecond=0,
+        tzinfo=TAIPEI_TZ,
+    )
+
+
+def drive_modified_time_is_current_cycle(modified_time: str, report_date: str) -> bool:
+    modified = datetime.fromisoformat(modified_time.replace("Z", "+00:00")).astimezone(TAIPEI_TZ)
+    return modified >= report_cycle_start(report_date)
+
+
+def public_report_already_updated_for_cycle(report_date: str, cfg: dict) -> bool:
+    public_cfg = cfg.get("public_report", {})
+    if not public_cfg.get("enabled", False):
+        return False
+
+    service, _auth_mode = build_google_drive_service()
+    if not service:
+        print("⚠️  無法檢查免費觀眾固定報告，繼續執行避免漏產")
+        return False
+
+    try:
+        fixed_file_id = resolve_public_report_file_id(public_cfg, os.environ)
+        if fixed_file_id:
+            file_info = service.files().get(
+                fileId=fixed_file_id,
+                fields="id,name,modifiedTime",
+                supportsAllDrives=True,
+            ).execute()
+        else:
+            folder_id = resolve_public_report_folder_id(public_cfg, os.environ)
+            if not folder_id:
+                return False
+            fixed_name = resolve_public_report_fixed_name(public_cfg)
+            query = (
+                f"'{folder_id}' in parents and "
+                f"name = '{fixed_name}' and "
+                "trashed = false"
+            )
+            files = service.files().list(
+                q=query,
+                fields="files(id,name,modifiedTime)",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            ).execute().get("files", [])
+            if not files:
+                return False
+            file_info = files[0]
+
+        modified_time = file_info.get("modifiedTime", "")
+        if modified_time and drive_modified_time_is_current_cycle(modified_time, report_date):
+            print(
+                f"免費觀眾固定報告 {file_info.get('name', '')} 已於本報告週期更新，"
+                "視為今日已完成，跳過重複產報"
+            )
+            return True
+    except Exception as exc:
+        print(f"⚠️  檢查免費觀眾固定報告失敗，繼續執行避免漏產：{exc}")
+    return False
+
 
 def upload_report_file_to_drive(file_path: Path, today: str, cfg: dict,
                                 file_name: str | None = None,
@@ -3103,20 +3175,23 @@ def publish_report_outputs(
             raise RuntimeError(msg)
         log_message(f"❌ {msg}")
 
-    backup_pdf = render_report_pdf(preview_path, f"每日台股報告_{date_key}.pdf")
-    drive_link = None
-    if backup_pdf:
-        log_message(f"已產生自用備份 PDF：{backup_pdf}")
-        drive_link = upload_report_file_to_drive(
-            backup_pdf, today, cfg, file_name=backup_pdf.name, mime_type="application/pdf"
-        )
-        if drive_link:
-            log_message(f"已上傳自用備份 PDF 至 Google Drive：{drive_link}")
-        elif not cfg.get("email", {}).get("enabled", True) and cfg.get("drive_report", {}).get("enabled", False):
-            msg = "Email 已關閉，但自用備份 Google Drive PDF 上傳失敗，發布流程中止"
-            if runtime_options.github_actions:
-                raise RuntimeError(msg)
-            log_message(f"❌ {msg}")
+    if LEGACY_SELF_BACKUP_REPORT_ENABLED:
+        backup_pdf = render_report_pdf(preview_path, f"每日台股報告_{date_key}.pdf")
+        drive_link = None
+        if backup_pdf:
+            log_message(f"已產生自用備份 PDF：{backup_pdf}")
+            drive_link = upload_report_file_to_drive(
+                backup_pdf, today, cfg, file_name=backup_pdf.name, mime_type="application/pdf"
+            )
+            if drive_link:
+                log_message(f"已上傳自用備份 PDF 至 Google Drive：{drive_link}")
+            elif not cfg.get("email", {}).get("enabled", True) and cfg.get("drive_report", {}).get("enabled", False):
+                msg = "Email 已關閉，但自用備份 Google Drive PDF 上傳失敗，發布流程中止"
+                if runtime_options.github_actions:
+                    raise RuntimeError(msg)
+                log_message(f"❌ {msg}")
+    else:
+        log_message("自用日期備份 PDF 已停用，僅更新免費觀眾固定報告")
 
 
 def main():
@@ -3152,7 +3227,7 @@ def main():
         log_message("  驗收產報模式：只上傳驗收版，不更新正式報告、不寄送 Email")
     if force_run:
         log_message("  手動強制執行：略過同日已產出檢查")
-    if not force_run and drive_file_exists(f"每日台股報告_{date_key}.pdf", cfg):
+    if not force_run and public_report_already_updated_for_cycle(today, cfg):
         return
 
     macro, market_events, news_items = fetch_report_market_inputs(cfg, today)
