@@ -35,6 +35,53 @@ class ValidationPublishTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "無 2026-06-04"):
             sm.trim_market_data_to_report_date(data, "2026-06-04")
 
+    @patch("stock_market_tracking_system.evaluate_weighted")
+    @patch("stock_market_tracking_system.fetch_fundamental_context")
+    @patch("stock_market_tracking_system.fetch_institutional")
+    @patch("stock_market_tracking_system.calc_indicators")
+    @patch("stock_market_tracking_system.fetch_data")
+    def test_formal_analysis_trims_future_rows_to_report_date(
+        self,
+        fetch_data,
+        calc_indicators,
+        fetch_institutional,
+        fetch_fundamental_context,
+        evaluate_weighted,
+    ):
+        fetch_data.return_value = pd.DataFrame(
+            {"Close": [100.0, 101.0]},
+            index=pd.to_datetime(["2026-06-11", "2026-06-12"]),
+        )
+        calc_indicators.side_effect = lambda df, _scfg: df
+        fetch_institutional.return_value = None
+        fetch_fundamental_context.return_value = {}
+        evaluate_weighted.return_value = {
+            "emoji": "⚪",
+            "summary": "觀察",
+            "effective_buy": 0,
+            "effective_sell": 0,
+            "buy_score": 0,
+            "sell_score": 0,
+            "b60": {"bias60": 0},
+        }
+
+        results, failures = sm.analyze_watchlist(
+            {
+                "watchlist": [{"ticker": "2330.TW", "name": "台積電"}],
+                "lookback_days": 10,
+                "thresholds": {},
+                "ma_periods": {},
+            },
+            "2026-06-11",
+            False,
+            {},
+            {},
+        )
+
+        self.assertEqual(failures, [])
+        self.assertEqual(results[0][2]["data_date"], "2026-06-11")
+        self.assertEqual(calc_indicators.call_args.args[0].index[-1].strftime("%Y-%m-%d"), "2026-06-11")
+
     def test_finds_latest_common_complete_market_date(self):
         market_data = {
             "^TWII": pd.DataFrame(

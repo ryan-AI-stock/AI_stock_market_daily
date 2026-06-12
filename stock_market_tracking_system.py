@@ -3102,8 +3102,7 @@ def analyze_watchlist(
                 ticker,
                 cfg["lookback_days"],
             )
-            if validation_mode:
-                df = trim_market_data_to_report_date(df, today)
+            df = trim_market_data_to_report_date(df, today)
             data_date = df.index[-1].strftime("%Y-%m-%d")
             df   = calc_indicators(df, scfg)
             inst = fetch_institutional(ticker) if scfg.get("use_institutional", True) else None
