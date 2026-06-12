@@ -24,6 +24,24 @@ def synthetic_market_data(rows: int = 260) -> pd.DataFrame:
     )
 
 
+def synthetic_downtrend_data(rows: int = 280) -> pd.DataFrame:
+    index = pd.bdate_range("2024-01-02", periods=rows)
+    close = pd.Series(
+        [150 - day * 0.18 + (day % 7) * 0.15 for day in range(rows)],
+        index=index,
+    )
+    return pd.DataFrame(
+        {
+            "Open": close.shift(1).fillna(close.iloc[0]),
+            "High": close * 1.01,
+            "Low": close * 0.99,
+            "Close": close,
+            "Volume": [1_000_000 + (day % 5) * 10_000 for day in range(rows)],
+        },
+        index=index,
+    )
+
+
 class WeightedModelContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -63,6 +81,45 @@ class WeightedModelContractTests(unittest.TestCase):
         self.assertEqual(result["regime"]["key"], "BULL_PULLBACK")
         self.assertEqual(result["trade_plan"]["trade_pct"], 10)
         self.assertAlmostEqual(result["close"], 129.47115466660748)
+
+    def test_calc_indicators_adds_risk_adjusted_momentum_columns(self):
+        indicators = sm.calc_indicators(
+            self.market_data.copy(),
+            self.stock_config,
+        )
+
+        for column_name in (
+            "Ret20",
+            "Ret60",
+            "Ret120",
+            "Vol20_Ann",
+            "MA120",
+            "MA200",
+            "MA200_Slope20",
+            "Drawdown252",
+            "RiskAdjustedMomentum",
+        ):
+            self.assertIn(column_name, indicators.columns)
+        self.assertTrue(pd.notna(indicators["RiskAdjustedMomentum"].iloc[-1]))
+
+    def test_long_term_downtrend_increases_risk_score(self):
+        indicators = sm.calc_indicators(
+            synthetic_downtrend_data(),
+            self.stock_config,
+        )
+        result = sm.evaluate_weighted(
+            indicators,
+            self.stock_config,
+            inst=None,
+            macro={},
+            fundamentals={},
+        )
+
+        trend_item = next(item for item in result["items"] if item[0] == "趨勢環境")
+        self.assertEqual(result["regime"]["key"], "BEAR")
+        self.assertEqual(trend_item[1], "長期趨勢轉弱")
+        self.assertGreater(result["effective_sell"], result["effective_buy"])
+        self.assertIn("中長期動能同步轉弱", result["trade_plan"]["reason"])
 
 
 if __name__ == "__main__":

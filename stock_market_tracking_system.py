@@ -441,6 +441,21 @@ def calc_indicators(df: pd.DataFrame, scfg: dict) -> pd.DataFrame:
     # 短線乖離率（依各股 mid MA）
     df["Bias20"] = (df["Close"] - df[f"MA{m}"]) / df[f"MA{m}"] * 100
 
+    # Backtest Lab 風險調整動能因子：只作為既有趨勢判斷的補強，不改報告結構。
+    daily_return = df["Close"].pct_change()
+    df["Ret20"] = df["Close"].pct_change(20)
+    df["Ret60"] = df["Close"].pct_change(60)
+    df["Ret120"] = df["Close"].pct_change(120)
+    df["Vol20_Ann"] = daily_return.rolling(20).std() * (252 ** 0.5)
+    df["MA120"] = df["Close"].rolling(120).mean()
+    df["MA200"] = df["Close"].rolling(200).mean()
+    df["MA200_Slope20"] = df["MA200"] / df["MA200"].shift(20) - 1
+    df["High252"] = df["Close"].rolling(252).max()
+    df["Drawdown252"] = df["Close"] / df["High252"] - 1
+    df["RiskAdjustedMomentum"] = (
+        0.45 * df["Ret60"] + 0.45 * df["Ret120"] - 0.10 * df["Vol20_Ann"]
+    )
+
     # KD
     low_min  = df["Low"].rolling(9).min()
     high_max = df["High"].rolling(9).max()
@@ -550,13 +565,66 @@ def score_to_signal(score: float) -> tuple:
     return "NEUTRAL", "無訊號"
 
 
+def _finite_float(value, default: float | None = None) -> float | None:
+    try:
+        if pd.notna(value):
+            return float(value)
+    except (TypeError, ValueError):
+        return default
+    return default
+
+
+def _pct_text(value: float | None) -> str:
+    return "資料不足" if value is None else f"{value * 100:+.1f}%"
+
+
 def classify_market_regime(close: float, ma_s: float, ma_m: float, ma_l: float,
-                           ma_s_prev: float, ma_m_prev: float, ma_l_prev: float) -> dict:
+                           ma_s_prev: float, ma_m_prev: float, ma_l_prev: float,
+                           ma120: float | None = None, ma200: float | None = None,
+                           ma200_slope20: float | None = None,
+                           ret20: float | None = None, ret60: float | None = None,
+                           ret120: float | None = None,
+                           drawdown252: float | None = None,
+                           vol20_ann: float | None = None) -> dict:
     ma_s_up = ma_s > ma_s_prev
     ma_m_up = ma_m > ma_m_prev
     ma_l_up = ma_l > ma_l_prev
+    long_trend_available = ma200 is not None and ret60 is not None and ret120 is not None
+    long_trend_down = (
+        long_trend_available
+        and close < ma200
+        and ret60 < 0
+        and ret120 < 0
+        and (ma200_slope20 is None or ma200_slope20 <= 0)
+    )
+    long_risk_confirmed = (
+        long_trend_down
+        and (drawdown252 is None or drawdown252 <= -0.10)
+    )
+    long_trend_up = (
+        long_trend_available
+        and close > ma200
+        and ret60 > 0
+        and ret120 > 0
+        and (ma200_slope20 is None or ma200_slope20 >= 0)
+    )
+
+    if long_risk_confirmed:
+        return {
+            "key": "BEAR",
+            "label": "空頭",
+            "color": DOWN_COLOR,
+            "note": "價格跌破長期均線，60日與120日動能同步轉弱，且距一年高點回撤擴大；此時風險條件權重提高。",
+        }
 
     if ma_m > ma_l and close > ma_m and ma_s_up and ma_m_up and ma_l_up:
+        if long_trend_available and not long_trend_up:
+            return {
+                "key": "BULL_PULLBACK",
+                "label": "多頭修正",
+                "color": WARN_COLOR,
+                "note": "短中期均線仍偏多，但長期動能尚未完全確認；此時適合把它視為多頭修正觀察，而不是無條件追強。",
+            }
         return {
             "key": "STRONG_BULL",
             "label": "大多頭",
@@ -1135,6 +1203,15 @@ def evaluate_weighted(df: pd.DataFrame, scfg: dict, inst: dict | None = None,
     obv = float(latest["OBV"])
     obv_ma = float(latest["OBV_MA"])
     obv_prev = float(prev["OBV"])
+    ret20 = _finite_float(latest.get("Ret20"))
+    ret60 = _finite_float(latest.get("Ret60"))
+    ret120 = _finite_float(latest.get("Ret120"))
+    vol20_ann = _finite_float(latest.get("Vol20_Ann"))
+    ma120 = _finite_float(latest.get("MA120"))
+    ma200 = _finite_float(latest.get("MA200"))
+    ma200_slope20 = _finite_float(latest.get("MA200_Slope20"))
+    drawdown252 = _finite_float(latest.get("Drawdown252"))
+    risk_adjusted_momentum = _finite_float(latest.get("RiskAdjustedMomentum"))
 
     items = []
     buy_score = 0.0
@@ -1164,6 +1241,27 @@ def evaluate_weighted(df: pd.DataFrame, scfg: dict, inst: dict | None = None,
 
     ma_s_dir = ma_s > ma_s_prev
     above_ma_s = close > ma_s
+    long_trend_available = ma200 is not None and ret60 is not None and ret120 is not None
+    long_trend_down = (
+        long_trend_available
+        and close < ma200
+        and ret60 < 0
+        and ret120 < 0
+        and (ma200_slope20 is None or ma200_slope20 <= 0)
+    )
+    long_trend_up = (
+        long_trend_available
+        and close > ma200
+        and ret60 > 0
+        and ret120 > 0
+        and (ma200_slope20 is None or ma200_slope20 >= 0)
+    )
+    high_volatility = vol20_ann is not None and vol20_ann >= thr.get("vol20_ann_risk", 0.35)
+    deep_drawdown = drawdown252 is not None and drawdown252 <= thr.get("drawdown252_risk", -0.12)
+    weak_risk_adjusted_momentum = (
+        risk_adjusted_momentum is not None
+        and risk_adjusted_momentum <= thr.get("risk_adjusted_momentum_weak", -0.03)
+    )
     if ma_m > ma_l and above_ma_s and ma_s_dir:
         trend = "healthy_bull"
         trend_label, trend_color = "多頭健康", DOWN_COLOR
@@ -1180,14 +1278,37 @@ def evaluate_weighted(df: pd.DataFrame, scfg: dict, inst: dict | None = None,
         trend = "neutral"
         trend_label, trend_color = "方向不明", NEUTRAL_COLOR
         trend_buy = trend_sell = 0
+    if long_trend_down and (deep_drawdown or weak_risk_adjusted_momentum):
+        trend = "bear"
+        trend_label, trend_color = "長期趨勢轉弱", DOWN_COLOR
+        trend_buy, trend_sell = 0, WEIGHTS["trend"]
+    elif trend == "healthy_bull" and not long_trend_up and (high_volatility or weak_risk_adjusted_momentum):
+        trend = "weak_bull"
+        trend_label, trend_color = "多頭但風險升高", "#f39c12"
+        trend_buy, trend_sell = WEIGHTS["trend"] * 0.4, WEIGHTS["trend"] * 0.3
+    elif trend == "weak_bull" and long_trend_up and not high_volatility:
+        trend_label = "多頭修正"
+        trend_buy, trend_sell = WEIGHTS["trend"] * 0.5, WEIGHTS["trend"] * 0.2
+    momentum_note = (
+        f"｜20日報酬={_pct_text(ret20)}｜60日報酬={_pct_text(ret60)}｜"
+        f"120日報酬={_pct_text(ret120)}｜20日年化波動={_pct_text(vol20_ann)}｜"
+        f"距一年高點={_pct_text(drawdown252)}｜"
+        "長週期動能、波動與回撤用於降低短線均線誤判"
+    )
     add_item(
         "趨勢環境", trend_label, trend_color,
         f"MA{s}={ma_s:.1f}｜MA{m}={ma_m:.1f}｜MA{l}={ma_l:.1f}｜"
         f"收盤{'站上' if above_ma_s else '跌破'}{s}日線（{s}日線{'向上' if ma_s_dir else '向下'}）｜"
-        f"趨勢代表目前市場主方向，是本模型最重要的判斷項目｜均線交叉已包含在趨勢判斷中，不重複加分",
+        f"趨勢代表目前市場主方向，是本模型最重要的判斷項目｜均線交叉已包含在趨勢判斷中，不重複加分"
+        f"{momentum_note}",
         trend_buy, trend_sell,
     )
-    regime = classify_market_regime(close, ma_s, ma_m, ma_l, ma_s_prev, ma_m_prev, ma_l_prev)
+    regime = classify_market_regime(
+        close, ma_s, ma_m, ma_l, ma_s_prev, ma_m_prev, ma_l_prev,
+        ma120=ma120, ma200=ma200, ma200_slope20=ma200_slope20,
+        ret20=ret20, ret60=ret60, ret120=ret120,
+        drawdown252=drawdown252, vol20_ann=vol20_ann,
+    )
 
     ma60_dist = (close / ma_l - 1) * 100 if ma_l else 0.0
     recent_ma60_dist = (df["Low"].tail(5) / df[f"MA{l}"].tail(5) - 1) * 100
@@ -1525,6 +1646,15 @@ def evaluate_weighted(df: pd.DataFrame, scfg: dict, inst: dict | None = None,
         risk_evidence.append("短線趨勢仍在修正")
     elif trend == "bear":
         risk_evidence.append("中期趨勢偏空")
+
+    if long_trend_up:
+        positive_evidence.append("中長期動能維持正向")
+    if long_trend_down:
+        risk_evidence.append("中長期動能同步轉弱")
+    if high_volatility:
+        risk_evidence.append("短期波動升高")
+    if deep_drawdown:
+        risk_evidence.append("距一年高點回撤擴大")
 
     if hist > 0:
         positive_evidence.append("MACD位於多頭區")
