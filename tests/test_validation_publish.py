@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -141,6 +142,42 @@ class ValidationPublishTests(unittest.TestCase):
             sm.upload_validation_report_file(Path("report.pdf"), "", "2026-06-04")
         )
         upload_file_to_drive.assert_not_called()
+
+    @patch("stock_market_tracking_system.upload_public_report_file")
+    @patch("stock_market_tracking_system.save_public_report_file")
+    @patch("stock_market_tracking_system.build_public_report_html")
+    @patch("stock_market_tracking_system.save_email_preview")
+    @patch("stock_market_tracking_system.build_email_html")
+    def test_github_actions_fails_when_public_pdf_publish_fails_with_email_disabled(
+        self,
+        build_email_html,
+        save_email_preview,
+        build_public_report_html,
+        save_public_report_file,
+        upload_public_report_file,
+    ):
+        build_email_html.return_value = "<html>Email</html>"
+        save_email_preview.return_value = Path("email_preview.html")
+        build_public_report_html.return_value = "<html>Public</html>"
+        save_public_report_file.return_value = Path("public_report") / "每日台股報告.pdf"
+        upload_public_report_file.return_value = None
+
+        with self.assertRaisesRegex(RuntimeError, "免費觀眾 Google Drive PDF 上傳失敗"):
+            sm.publish_report_outputs(
+                {
+                    "email": {"enabled": False},
+                    "public_report": {"enabled": True},
+                },
+                "2026-06-18",
+                "20260618",
+                [],
+                {},
+                [],
+                [],
+                validation_mode=False,
+                validation_folder_id="",
+                runtime_options=SimpleNamespace(github_actions=True),
+            )
 
 
 if __name__ == "__main__":
