@@ -1,0 +1,6 @@
+pandas
+yfinance
+requests
+playwright
+google-api-python-client
+google-auth
