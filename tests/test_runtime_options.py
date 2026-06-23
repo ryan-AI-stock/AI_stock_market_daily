@@ -13,6 +13,9 @@ class RuntimeOptionsTests(unittest.TestCase):
         self.assertFalse(options.force_run_report)
         self.assertFalse(options.should_force_run)
         self.assertFalse(options.github_actions)
+        self.assertEqual(options.github_event_name, "")
+        self.assertFalse(options.is_workflow_dispatch)
+        self.assertEqual(options.report_date_override, "")
 
     def test_validation_folder_enables_validation_and_force_run(self):
         options = parse_runtime_options({
@@ -35,6 +38,12 @@ class RuntimeOptionsTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertFalse(parse_runtime_options({"GITHUB_ACTIONS": value}).github_actions)
 
+    def test_detects_workflow_dispatch_event(self):
+        options = parse_runtime_options({"GITHUB_EVENT_NAME": "workflow_dispatch"})
+
+        self.assertEqual(options.github_event_name, "workflow_dispatch")
+        self.assertTrue(options.is_workflow_dispatch)
+
 
 class ReportRunContextTests(unittest.TestCase):
     def test_builds_report_date_and_date_key_from_cycle_rule(self):
@@ -51,6 +60,7 @@ class ReportRunContextTests(unittest.TestCase):
 
         self.assertEqual(context.report_date, "2026-06-05")
         self.assertEqual(context.date_key, "20260605")
+        self.assertEqual(context.runtime_options.report_date_override, "2026-06-05")
 
     def test_report_date_env_rejects_invalid_value(self):
         with self.assertRaises(ValueError):

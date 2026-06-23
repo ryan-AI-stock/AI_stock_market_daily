@@ -3212,6 +3212,44 @@ def fetch_report_market_inputs(cfg: dict, today: str) -> tuple[dict, list, list]
     return macro, market_events, news_items
 
 
+def preload_watchlist_market_data(cfg: dict, report_date: str) -> dict:
+    return {
+        stock["ticker"]: trim_market_data_to_report_date(
+            fetch_data(stock["ticker"], cfg["lookback_days"]),
+            report_date,
+        )
+        for stock in cfg["watchlist"]
+    }
+
+
+def resolve_report_date_for_run(cfg: dict, run_context):
+    """Resolve report date and optional preloaded data for fallback-capable runs."""
+    requested_date = run_context.report_date
+    runtime_options = run_context.runtime_options
+    fallback_reason = "none"
+    market_data = {}
+
+    if runtime_options.validation_mode:
+        log_message("  驗收產報模式：預先確認所有追蹤標的共同完整資料日")
+        market_data = preload_watchlist_market_data(cfg, requested_date)
+        common_date = find_latest_common_market_date(market_data, requested_date)
+        if common_date != requested_date:
+            fallback_reason = "validation_latest_common_market_date"
+            log_message(f"  驗收資料日由 {requested_date} 回退至所有標的共同完整日 {common_date}")
+        return run_context.with_report_date(common_date), market_data, requested_date, fallback_reason
+
+    if runtime_options.is_workflow_dispatch and not runtime_options.report_date_override:
+        log_message("  手動補跑模式：預先確認所有追蹤標的共同完整資料日")
+        market_data = preload_watchlist_market_data(cfg, requested_date)
+        common_date = find_latest_common_market_date(market_data, requested_date)
+        if common_date != requested_date:
+            fallback_reason = "workflow_dispatch_latest_complete_market_date"
+            log_message(f"  手動補跑資料日由 {requested_date} 回退至所有標的共同完整日 {common_date}")
+        return run_context.with_report_date(common_date), market_data, requested_date, fallback_reason
+
+    return run_context, market_data, requested_date, fallback_reason
+
+
 def analyze_watchlist(
     cfg: dict,
     today: str,
@@ -3228,7 +3266,7 @@ def analyze_watchlist(
         log_message(f"  {name} ({ticker}) ...", end=" ")
         try:
             scfg = get_stock_cfg(stock, cfg)
-            df = validation_market_data[ticker] if validation_mode else fetch_data(
+            df = validation_market_data[ticker] if ticker in validation_market_data else fetch_data(
                 ticker,
                 cfg["lookback_days"],
             )
@@ -3327,25 +3365,20 @@ def main():
     cfg   = load_config()
     run_context = build_report_run_context(datetime.now(TAIPEI_TZ), os.environ)
     now_tw = run_context.now_tw
+    run_context, validation_market_data, requested_date, fallback_reason = resolve_report_date_for_run(
+        cfg,
+        run_context,
+    )
     today = run_context.report_date
     runtime_options = run_context.runtime_options
     validation_folder_id = runtime_options.validation_folder_id
     validation_mode = runtime_options.validation_mode
-    validation_market_data = {}
-    if validation_mode:
-        log_message("  驗收產報模式：預先確認所有追蹤標的共同完整資料日")
-        validation_market_data = {
-            stock["ticker"]: trim_market_data_to_report_date(
-                fetch_data(stock["ticker"], cfg["lookback_days"]),
-                today,
-            )
-            for stock in cfg["watchlist"]
-        }
-        common_date = find_latest_common_market_date(validation_market_data, today)
-        if common_date != today:
-            log_message(f"  驗收資料日由 {today} 回退至所有標的共同完整日 {common_date}")
-        run_context = run_context.with_report_date(common_date)
-        today = run_context.report_date
+    log_message(
+        "  run_manifest: "
+        f"requested_date={requested_date} "
+        f"actual_report_date={today} "
+        f"fallback_reason={fallback_reason}"
+    )
     log_message(
         f"[{now_tw.strftime('%Y-%m-%d %H:%M')}] 開始分析，共 {len(cfg['watchlist'])} 檔"
         f"｜報告週期={today}"

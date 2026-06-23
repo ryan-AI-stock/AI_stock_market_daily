@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
+from daily_stock.runtime import build_report_run_context
 from daily_stock.validation_reports import validation_report_file_name
 import stock_market_tracking_system as sm
 
@@ -99,6 +100,89 @@ class ValidationPublishTests(unittest.TestCase):
             sm.find_latest_common_market_date(market_data, "2026-06-04"),
             "2026-06-03",
         )
+
+    @patch("stock_market_tracking_system.fetch_data")
+    def test_workflow_dispatch_falls_back_to_latest_complete_market_date(self, fetch_data):
+        cfg = {
+            "lookback_days": 10,
+            "watchlist": [
+                {"ticker": "^TWII", "name": "加權指數"},
+                {"ticker": "2330.TW", "name": "台積電"},
+            ],
+        }
+        fetch_data.side_effect = [
+            pd.DataFrame(
+                {"Close": [100.0, 101.0]},
+                index=pd.to_datetime(["2026-06-03", "2026-06-04"]),
+            ),
+            pd.DataFrame(
+                {"Close": [200.0]},
+                index=pd.to_datetime(["2026-06-03"]),
+            ),
+        ]
+        context = build_report_run_context(
+            pd.Timestamp("2026-06-05 15:30").to_pydatetime(),
+            {
+                "GITHUB_ACTIONS": "true",
+                "GITHUB_EVENT_NAME": "workflow_dispatch",
+            },
+        )
+
+        updated, market_data, requested_date, fallback_reason = sm.resolve_report_date_for_run(
+            cfg,
+            context,
+        )
+
+        self.assertEqual(requested_date, "2026-06-05")
+        self.assertEqual(updated.report_date, "2026-06-03")
+        self.assertEqual(fallback_reason, "workflow_dispatch_latest_complete_market_date")
+        self.assertEqual(set(market_data), {"^TWII", "2330.TW"})
+
+    @patch("stock_market_tracking_system.fetch_data")
+    def test_workflow_dispatch_with_report_date_override_keeps_exact_mode(self, fetch_data):
+        cfg = {"lookback_days": 10, "watchlist": [{"ticker": "^TWII", "name": "加權指數"}]}
+        context = build_report_run_context(
+            pd.Timestamp("2026-06-05 15:30").to_pydatetime(),
+            {
+                "GITHUB_ACTIONS": "true",
+                "GITHUB_EVENT_NAME": "workflow_dispatch",
+                "REPORT_DATE": "2026-06-04",
+            },
+        )
+
+        updated, market_data, requested_date, fallback_reason = sm.resolve_report_date_for_run(
+            cfg,
+            context,
+        )
+
+        self.assertEqual(requested_date, "2026-06-04")
+        self.assertEqual(updated.report_date, "2026-06-04")
+        self.assertEqual(fallback_reason, "none")
+        self.assertEqual(market_data, {})
+        fetch_data.assert_not_called()
+
+    @patch("stock_market_tracking_system.fetch_data")
+    def test_scheduled_report_date_override_keeps_exact_mode(self, fetch_data):
+        cfg = {"lookback_days": 10, "watchlist": [{"ticker": "^TWII", "name": "加權指數"}]}
+        context = build_report_run_context(
+            pd.Timestamp("2026-06-05 15:30").to_pydatetime(),
+            {
+                "GITHUB_ACTIONS": "true",
+                "GITHUB_EVENT_NAME": "schedule",
+                "REPORT_DATE": "2026-06-04",
+            },
+        )
+
+        updated, market_data, requested_date, fallback_reason = sm.resolve_report_date_for_run(
+            cfg,
+            context,
+        )
+
+        self.assertEqual(requested_date, "2026-06-04")
+        self.assertEqual(updated.report_date, "2026-06-04")
+        self.assertEqual(fallback_reason, "none")
+        self.assertEqual(market_data, {})
+        fetch_data.assert_not_called()
 
     def test_rejects_when_tickers_have_no_common_market_date(self):
         market_data = {

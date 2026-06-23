@@ -17,6 +17,8 @@ class RuntimeOptions:
     validation_folder_id: str = ""
     force_run_report: bool = False
     github_actions: bool = False
+    github_event_name: str = ""
+    report_date_override: str = ""
 
     @property
     def validation_mode(self) -> bool:
@@ -25,6 +27,10 @@ class RuntimeOptions:
     @property
     def should_force_run(self) -> bool:
         return self.force_run_report or self.validation_mode
+
+    @property
+    def is_workflow_dispatch(self) -> bool:
+        return self.github_event_name == "workflow_dispatch"
 
 
 @dataclass(frozen=True)
@@ -50,14 +56,17 @@ def parse_runtime_options(env: Mapping[str, str | None]) -> RuntimeOptions:
         validation_folder_id=str(env.get("REPORT_VALIDATION_DRIVE_FOLDER_ID") or "").strip(),
         force_run_report=_is_force_run_enabled(env.get("FORCE_RUN_REPORT")),
         github_actions=_is_github_actions(env.get("GITHUB_ACTIONS")),
+        github_event_name=str(env.get("GITHUB_EVENT_NAME") or "").strip(),
+        report_date_override=_report_date_override(env.get("REPORT_DATE")),
     )
 
 
 def build_report_run_context(now_tw: datetime, env: Mapping[str, str | None]) -> ReportRunContext:
+    runtime_options = parse_runtime_options(env)
     return ReportRunContext(
         now_tw=now_tw,
-        report_date=_report_date_override(env.get("REPORT_DATE")) or get_report_date(now_tw),
-        runtime_options=parse_runtime_options(env),
+        report_date=runtime_options.report_date_override or get_report_date(now_tw),
+        runtime_options=runtime_options,
     )
 
 
