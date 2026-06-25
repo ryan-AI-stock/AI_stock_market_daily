@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime
+from types import SimpleNamespace
 
 import stock_market_tracking_system as sm
 
@@ -38,8 +39,43 @@ class ValidateReportCompletenessTests(unittest.TestCase):
             ("台積電", "2330.TW", {"data_date": "2026-06-03"}),
         ]
 
-        with self.assertRaisesRegex(RuntimeError, "資料日非 2026-06-04=2330.TW"):
+        with self.assertRaisesRegex(RuntimeError, "資料日非 2026-06-04=2330.TW") as raised:
             sm.validate_report_completeness(results, [], WATCHLIST, "2026-06-04")
+
+        self.assertIsInstance(raised.exception, sm.ReportCompletenessError)
+        self.assertEqual(raised.exception.stale_tickers, ["2330.TW"])
+        self.assertEqual(raised.exception.missing_tickers, [])
+        self.assertEqual(raised.exception.failures, [])
+
+    def test_defer_incomplete_scheduled_run_only_for_stale_data(self):
+        runtime = SimpleNamespace(github_actions=True, github_event_name="schedule")
+        stale_error = sm.ReportCompletenessError(
+            "報告資料不完整",
+            failures=[],
+            missing_tickers=[],
+            stale_tickers=["^TWII"],
+        )
+
+        self.assertTrue(sm.should_defer_incomplete_scheduled_run(runtime, stale_error))
+
+    def test_does_not_defer_manual_or_analysis_failure(self):
+        manual_runtime = SimpleNamespace(github_actions=True, github_event_name="workflow_dispatch")
+        schedule_runtime = SimpleNamespace(github_actions=True, github_event_name="schedule")
+        failure_error = sm.ReportCompletenessError(
+            "報告資料不完整",
+            failures=[{"ticker": "2330.TW"}],
+            missing_tickers=[],
+            stale_tickers=[],
+        )
+        stale_error = sm.ReportCompletenessError(
+            "報告資料不完整",
+            failures=[],
+            missing_tickers=[],
+            stale_tickers=["^TWII"],
+        )
+
+        self.assertFalse(sm.should_defer_incomplete_scheduled_run(manual_runtime, stale_error))
+        self.assertFalse(sm.should_defer_incomplete_scheduled_run(schedule_runtime, failure_error))
 
 
 class GetReportDateTests(unittest.TestCase):

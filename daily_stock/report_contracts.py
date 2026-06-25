@@ -3,6 +3,20 @@
 from datetime import datetime, timedelta
 
 
+class ReportCompletenessError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        failures: list,
+        missing_tickers: list[str],
+        stale_tickers: list[str],
+    ):
+        super().__init__(message)
+        self.failures = failures
+        self.missing_tickers = missing_tickers
+        self.stale_tickers = stale_tickers
+
+
 def validate_report_completeness(
     results: list,
     failures: list,
@@ -33,7 +47,12 @@ def validate_report_completeness(
         issues.append(f"資料日非 {expected_date}=" + "、".join(stale_tickers))
 
     if issues:
-        raise RuntimeError("報告資料不完整，禁止產生與發布檔案｜" + "｜".join(issues))
+        raise ReportCompletenessError(
+            "報告資料不完整，禁止產生與發布檔案｜" + "｜".join(issues),
+            failures=failures,
+            missing_tickers=missing_tickers,
+            stale_tickers=stale_tickers,
+        )
 
 
 def get_report_date(now_tw: datetime) -> str:

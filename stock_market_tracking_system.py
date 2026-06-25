@@ -28,7 +28,11 @@ from daily_stock.drive_publish import (
     resolve_self_report_mime_type,
 )
 from daily_stock.logging_utils import log_message
-from daily_stock.report_contracts import get_report_date, validate_report_completeness
+from daily_stock.report_contracts import (
+    ReportCompletenessError,
+    get_report_date,
+    validate_report_completeness,
+)
 from daily_stock.runtime import build_report_run_context
 from daily_stock.validation_reports import (
     find_latest_common_market_date,
@@ -3294,6 +3298,17 @@ def analyze_watchlist(
     return results, failures
 
 
+def should_defer_incomplete_scheduled_run(runtime_options, exc: Exception) -> bool:
+    return (
+        runtime_options.github_actions
+        and runtime_options.github_event_name == "schedule"
+        and isinstance(exc, ReportCompletenessError)
+        and not exc.failures
+        and not exc.missing_tickers
+        and bool(exc.stale_tickers)
+    )
+
+
 def publish_report_outputs(
     cfg: dict,
     today: str,
@@ -3395,7 +3410,13 @@ def main():
     macro, market_events, news_items = fetch_report_market_inputs(cfg, today)
     results, failures = analyze_watchlist(cfg, today, validation_mode, validation_market_data, macro)
 
-    validate_report_completeness(results, failures, cfg["watchlist"], today)
+    try:
+        validate_report_completeness(results, failures, cfg["watchlist"], today)
+    except ReportCompletenessError as exc:
+        if should_defer_incomplete_scheduled_run(runtime_options, exc):
+            log_message(f"  排程資料尚未完整，略過本次產報，等待下一次排程重試｜{exc}")
+            return
+        raise
     publish_report_outputs(
         cfg,
         today,
