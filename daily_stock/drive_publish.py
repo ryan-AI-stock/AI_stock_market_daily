@@ -11,7 +11,7 @@ GOOGLE_DRIVE_SCOPES = ("https://www.googleapis.com/auth/drive",)
 PDF_MIME_TYPE = "application/pdf"
 HTML_MIME_TYPE = "text/html"
 PNG_MIME_TYPE = "image/png"
-DEFAULT_PUBLIC_REPORT_FILE_NAME = "每日台股報告.pdf"
+DEFAULT_PUBLIC_REPORT_FILE_NAME = "台股加權及中大型權值股訊號追蹤_每日台股報告.pdf"
 
 
 @dataclass(frozen=True)

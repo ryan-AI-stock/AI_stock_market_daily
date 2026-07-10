@@ -215,15 +215,15 @@
 
   "drive_report": {
     "enabled": true,
-    "folder_id": "1BtgbdxYrLqiZEVMXz2C50k5AnOthOlJ0",
+    "folder_id": "16SmfPgMMIs7MWteeX1h2EkhSIEaGvpHn",
     "image_width": 1080
   },
 
   "public_report": {
     "enabled": true,
-    "folder_id": "1qkuHGyvnlGKoY-LpYb39-LKVxF5i-0sD",
-    "fixed_file_id": "1n8_EL6yLt4qQEAfRxgwXZNPTdqmJ_3t2",
-    "fixed_file_name": "每日台股報告.pdf",
+    "folder_id": "16SmfPgMMIs7MWteeX1h2EkhSIEaGvpHn",
+    "fixed_file_id": "",
+    "fixed_file_name": "台股加權及中大型權值股訊號追蹤_每日台股報告.pdf",
     "format": "pdf",
     "make_public": true
   }

@@ -70,8 +70,9 @@ jobs:
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
           GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
           GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
-          DAILY_REPORT_DRIVE_FOLDER_ID: ${{ secrets.DAILY_REPORT_DRIVE_FOLDER_ID }}
-          PUBLIC_REPORT_DRIVE_FOLDER_ID: ${{ vars.PUBLIC_REPORT_DRIVE_FOLDER_ID }}
+          DAILY_REPORT_DRIVE_FOLDER_ID: 16SmfPgMMIs7MWteeX1h2EkhSIEaGvpHn
+          PUBLIC_REPORT_DRIVE_FOLDER_ID: 16SmfPgMMIs7MWteeX1h2EkhSIEaGvpHn
+          PUBLIC_REPORT_DRIVE_FILE_ID: ""
           FORCE_RUN_REPORT: ${{ github.event.inputs.force_run || 'false' }}
           REPORT_VALIDATION_DRIVE_FOLDER_ID: ${{ github.event.inputs.validation_folder_id || '' }}
           REPORT_DATE: ${{ steps.schedule-gate.outputs.target_date || '' }}
