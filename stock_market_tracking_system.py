@@ -240,6 +240,12 @@ def _find_exact_field(fields: list, name: str) -> int | None:
         return None
 
 
+def _row_value(row: list, idx: int | None, default: str = ""):
+    if idx is None or idx >= len(row):
+        return default
+    return row[idx]
+
+
 # ── 三大法人資料 ─────────────────────────────────────────────
 def fetch_institutional(ticker: str, lookback_days: int = 7) -> dict:
     stock_id = ticker.upper().replace(".TW", "").replace(".TWO", "")
@@ -286,11 +292,12 @@ def fetch_institutional(ticker: str, lookback_days: int = 7) -> dict:
             continue
 
         for row in rows:
-            if str(row[idx_id]).strip() == stock_id:
-                foreign = _parse_int(row[idx_foreign])
-                invest = _parse_int(row[idx_invest])
-                dealer = _parse_int(row[idx_dealer])
-                total = _parse_int(row[idx_total]) if idx_total is not None else foreign + invest + dealer
+            if str(_row_value(row, idx_id)).strip() == stock_id:
+                foreign = _parse_int(_row_value(row, idx_foreign))
+                invest = _parse_int(_row_value(row, idx_invest))
+                dealer = _parse_int(_row_value(row, idx_dealer))
+                total_raw = _row_value(row, idx_total, None)
+                total = _parse_int(total_raw) if total_raw is not None else foreign + invest + dealer
                 return {
                     "success": True,
                     "date": date_str,

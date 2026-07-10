@@ -199,6 +199,28 @@ class ValidationPublishTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "沒有共同市場資料日"):
             sm.find_latest_common_market_date(market_data, "2026-06-04")
 
+    @patch("stock_market_tracking_system.requests.get")
+    def test_fetch_institutional_handles_short_twse_rows(self, requests_get):
+        response = SimpleNamespace()
+        response.raise_for_status = lambda: None
+        response.json = lambda: {
+            "stat": "OK",
+            "fields": [
+                "證券代號",
+                "外陸資買賣超股數(不含外資自營商)",
+                "投信買賣超股數",
+                "自營商買賣超股數",
+                "三大法人買賣超股數",
+            ],
+            "data": [["2454", "1,000", "2,000", "3,000"]],
+        }
+        requests_get.return_value = response
+
+        result = sm.fetch_institutional("2454.TW", lookback_days=1)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["total_net"], 6000)
+
     @patch("stock_market_tracking_system.upload_file_to_drive")
     def test_uploads_isolated_validation_report(self, upload_file_to_drive):
         upload_file_to_drive.return_value = "https://drive.google.com/file/d/test/view"
