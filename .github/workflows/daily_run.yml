@@ -8,9 +8,9 @@ on:
   workflow_dispatch:          # 允許手動在網頁上觸發
     inputs:
       force_run:
-        description: '忽略同日已產出檢查，強制重新產生並寄送'
+        description: '手動 Action 永遠強制重新產生；此欄位僅保留相容性'
         required: false
-        default: 'false'
+        default: 'true'
         type: choice
         options:
           - 'false'
@@ -73,7 +73,8 @@ jobs:
           DAILY_REPORT_DRIVE_FOLDER_ID: 16SmfPgMMIs7MWteeX1h2EkhSIEaGvpHn
           PUBLIC_REPORT_DRIVE_FOLDER_ID: 16SmfPgMMIs7MWteeX1h2EkhSIEaGvpHn
           PUBLIC_REPORT_DRIVE_FILE_ID: ""
-          FORCE_RUN_REPORT: ${{ github.event.inputs.force_run || 'false' }}
+          # Manual dispatch is always authoritative and must never be blocked by an existing Drive report.
+          FORCE_RUN_REPORT: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
           REPORT_VALIDATION_DRIVE_FOLDER_ID: ${{ github.event.inputs.validation_folder_id || '' }}
           REPORT_DATE: ${{ steps.schedule-gate.outputs.target_date || '' }}
         run: python stock_market_tracking_system.py

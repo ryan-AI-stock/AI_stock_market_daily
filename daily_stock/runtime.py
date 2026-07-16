@@ -26,7 +26,7 @@ class RuntimeOptions:
 
     @property
     def should_force_run(self) -> bool:
-        return self.force_run_report or self.validation_mode
+        return self.is_workflow_dispatch or self.force_run_report or self.validation_mode
 
     @property
     def is_workflow_dispatch(self) -> bool:

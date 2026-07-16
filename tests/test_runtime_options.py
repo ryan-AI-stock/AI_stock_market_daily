@@ -43,6 +43,7 @@ class RuntimeOptionsTests(unittest.TestCase):
 
         self.assertEqual(options.github_event_name, "workflow_dispatch")
         self.assertTrue(options.is_workflow_dispatch)
+        self.assertTrue(options.should_force_run)
 
 
 class ReportRunContextTests(unittest.TestCase):
