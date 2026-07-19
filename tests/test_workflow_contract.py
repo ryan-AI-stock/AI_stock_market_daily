@@ -10,6 +10,8 @@ class WorkflowContractTests(unittest.TestCase):
 
         self.assertIn("repository: ryan-AI-stock/AI_stock_schedule_rules", workflow)
         self.assertIn("--profile daily", workflow)
+        self.assertIn("- cron: '0 7-15 * * 1-5'", workflow)
+        self.assertNotIn("- cron: '0 * * * *'", workflow)
         self.assertIn("default: 'true'", workflow)
         self.assertIn(
             "FORCE_RUN_REPORT: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}",
