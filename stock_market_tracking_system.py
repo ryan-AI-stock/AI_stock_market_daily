@@ -326,9 +326,10 @@ def _parse_twse_roc_date(value: str) -> pd.Timestamp:
     return pd.Timestamp(year=year + 1911, month=month, day=day)
 
 
-def fetch_twse_taiex_current_month() -> pd.DataFrame:
-    """Fetch exact official TAIEX OHLC and market volume for the current month."""
-    month = datetime.now(TAIPEI_TZ).strftime("%Y%m01")
+def fetch_twse_taiex_month(through_date: str | None = None) -> pd.DataFrame:
+    """Fetch exact official TAIEX OHLC and market volume for the requested month."""
+    target = pd.Timestamp(through_date).date() if through_date else datetime.now(TAIPEI_TZ).date()
+    month = target.strftime("%Y%m01")
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
         "Referer": "https://www.twse.com.tw/",
@@ -377,9 +378,10 @@ def fetch_twse_taiex_current_month() -> pd.DataFrame:
     )
 
 
-def fetch_data(ticker: str, days: int) -> pd.DataFrame:
+def fetch_data(ticker: str, days: int, through_date: str | None = None) -> pd.DataFrame:
     # yfinance 的 end 是「不含當日」的結束日期；收盤後要抓到今天資料，必須設成台灣明天。
-    end   = datetime.now(TAIPEI_TZ).date() + timedelta(days=1)
+    target = pd.Timestamp(through_date).date() if through_date else datetime.now(TAIPEI_TZ).date()
+    end   = target + timedelta(days=1)
     start = end - timedelta(days=days)
     df = yf.download(ticker,
                      start=start.strftime("%Y-%m-%d"),
@@ -390,7 +392,7 @@ def fetch_data(ticker: str, days: int) -> pd.DataFrame:
     df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
     df = df[["Open","High","Low","Close","Volume"]].dropna()
     if ticker == "^TWII":
-        official = fetch_twse_taiex_current_month()
+        official = fetch_twse_taiex_month(through_date)
         df = pd.concat([df.loc[~df.index.normalize().isin(official.index)], official]).sort_index()
     return df
 
@@ -3286,7 +3288,7 @@ def fetch_report_market_inputs(cfg: dict, today: str) -> tuple[dict, list, list]
 def preload_watchlist_market_data(cfg: dict, report_date: str) -> dict:
     return {
         stock["ticker"]: trim_market_data_to_report_date(
-            fetch_data(stock["ticker"], cfg["lookback_days"]),
+            fetch_data(stock["ticker"], cfg["lookback_days"], report_date),
             report_date,
         )
         for stock in cfg["watchlist"]
@@ -3340,6 +3342,7 @@ def analyze_watchlist(
             df = validation_market_data[ticker] if ticker in validation_market_data else fetch_data(
                 ticker,
                 cfg["lookback_days"],
+                today,
             )
             df = trim_market_data_to_report_date(df, today)
             data_date = df.index[-1].strftime("%Y-%m-%d")

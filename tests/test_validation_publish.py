@@ -27,7 +27,7 @@ class ValidationPublishTests(unittest.TestCase):
         }
         requests_get.side_effect = [ohlc, volume]
 
-        result = sm.fetch_twse_taiex_current_month()
+        result = sm.fetch_twse_taiex_month("2026-09-29")
 
         self.assertEqual(result.index[-1].strftime("%Y-%m-%d"), "2026-09-29")
         self.assertEqual(result.iloc[-1]["Close"], 47631.96)
@@ -44,7 +44,7 @@ class ValidationPublishTests(unittest.TestCase):
         requests_get.side_effect = [ohlc, volume]
 
         with self.assertRaisesRegex(ValueError, "沒有可合併"):
-            sm.fetch_twse_taiex_current_month()
+            sm.fetch_twse_taiex_month("2026-09-29")
 
     def test_builds_validation_report_file_name(self):
         self.assertEqual(
