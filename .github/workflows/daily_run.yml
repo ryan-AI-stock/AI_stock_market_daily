@@ -20,6 +20,11 @@ on:
         required: false
         default: ''
         type: string
+      report_date:
+        description: '精確補跑日期，YYYY-MM-DD；有指定時禁止回退到較舊資料日'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   run-signal:
@@ -76,5 +81,5 @@ jobs:
           # Manual dispatch is always authoritative and must never be blocked by an existing Drive report.
           FORCE_RUN_REPORT: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
           REPORT_VALIDATION_DRIVE_FOLDER_ID: ${{ github.event.inputs.validation_folder_id || '' }}
-          REPORT_DATE: ${{ steps.schedule-gate.outputs.target_date || '' }}
+          REPORT_DATE: ${{ github.event.inputs.report_date || steps.schedule-gate.outputs.target_date || '' }}
         run: python stock_market_tracking_system.py
