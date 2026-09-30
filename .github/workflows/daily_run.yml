@@ -82,4 +82,22 @@ jobs:
           FORCE_RUN_REPORT: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
           REPORT_VALIDATION_DRIVE_FOLDER_ID: ${{ github.event.inputs.validation_folder_id || '' }}
           REPORT_DATE: ${{ github.event.inputs.report_date || steps.schedule-gate.outputs.target_date || '' }}
-        run: python stock_market_tracking_system.py
+        shell: bash
+        run: |
+          # 資料供應商在收盤後可能延遲：同一次 Action 有限重抓，
+          # 不會無限迴圈；全部失敗才交給下一個每小時排程或外部監控。
+          for attempt in 1 2 3; do
+            set +e
+            python stock_market_tracking_system.py
+            status=$?
+            set -e
+            if [ "$status" -eq 0 ]; then exit 0; fi
+            if [ "$status" -ne 75 ]; then exit "$status"; fi
+            if [ "$attempt" -lt 3 ]; then
+              wait_minutes=$((attempt * 3))
+              echo "目標交易日資料尚未齊（${attempt}/3），${wait_minutes}分鐘後重新下載。"
+              sleep $((wait_minutes * 60))
+            fi
+          done
+          echo "::error::三次下載後目標交易日資料仍未齊；未發布舊報告，交由下一排程與外部監控補救。"
+          exit 75

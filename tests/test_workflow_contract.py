@@ -14,6 +14,8 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("- cron: '0 * * * *'", workflow)
         self.assertIn("default: 'true'", workflow)
         self.assertIn("report_date:", workflow)
+        self.assertIn("for attempt in 1 2 3", workflow)
+        self.assertIn("exit 75", workflow)
         self.assertIn("github.event.inputs.report_date || steps.schedule-gate.outputs.target_date", workflow)
         self.assertIn(
             "FORCE_RUN_REPORT: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}",

@@ -3484,8 +3484,8 @@ def main():
         validate_report_completeness(results, failures, cfg["watchlist"], today)
     except ReportCompletenessError as exc:
         if should_defer_incomplete_scheduled_run(runtime_options, exc):
-            log_message(f"  排程資料尚未完整，略過本次產報，等待下一次排程重試｜{exc}")
-            return
+            log_message(f"  排程資料尚未完整，本次不發布舊報告，交由workflow有限次重抓｜{exc}")
+            raise SystemExit(75)
         raise
     publish_report_outputs(
         cfg,
