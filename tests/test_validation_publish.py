@@ -11,6 +11,41 @@ import stock_market_tracking_system as sm
 
 
 class ValidationPublishTests(unittest.TestCase):
+    @patch("stock_market_tracking_system.requests.get")
+    def test_fetches_exact_official_taiex_ohlc_and_volume(self, requests_get):
+        ohlc = SimpleNamespace()
+        ohlc.raise_for_status = lambda: None
+        ohlc.json = lambda: {
+            "stat": "OK",
+            "data": [["115/09/29", "47,873.89", "48,045.13", "47,573.09", "47,631.96"]],
+        }
+        volume = SimpleNamespace()
+        volume.raise_for_status = lambda: None
+        volume.json = lambda: {
+            "stat": "OK",
+            "data": [["115/09/29", "9,672,871,036", "836,144,707,733"]],
+        }
+        requests_get.side_effect = [ohlc, volume]
+
+        result = sm.fetch_twse_taiex_current_month()
+
+        self.assertEqual(result.index[-1].strftime("%Y-%m-%d"), "2026-09-29")
+        self.assertEqual(result.iloc[-1]["Close"], 47631.96)
+        self.assertEqual(result.iloc[-1]["Volume"], 9672871036)
+
+    @patch("stock_market_tracking_system.requests.get")
+    def test_official_taiex_requires_matching_ohlc_and_volume_dates(self, requests_get):
+        ohlc = SimpleNamespace()
+        ohlc.raise_for_status = lambda: None
+        ohlc.json = lambda: {"stat": "OK", "data": [["115/09/29", "1", "2", "1", "2"]]}
+        volume = SimpleNamespace()
+        volume.raise_for_status = lambda: None
+        volume.json = lambda: {"stat": "OK", "data": [["115/09/24", "100"]]}
+        requests_get.side_effect = [ohlc, volume]
+
+        with self.assertRaisesRegex(ValueError, "沒有可合併"):
+            sm.fetch_twse_taiex_current_month()
+
     def test_builds_validation_report_file_name(self):
         self.assertEqual(
             validation_report_file_name(Path("public_report") / "每日台股報告.pdf", "2026-06-04"),

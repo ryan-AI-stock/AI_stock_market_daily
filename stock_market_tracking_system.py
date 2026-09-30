@@ -321,6 +321,62 @@ def fetch_institutional(ticker: str, lookback_days: int = 7) -> dict:
 
 
 # ── 抓取資料 ────────────────────────────────────────────────
+def _parse_twse_roc_date(value: str) -> pd.Timestamp:
+    year, month, day = (int(part) for part in str(value).strip().split("/"))
+    return pd.Timestamp(year=year + 1911, month=month, day=day)
+
+
+def fetch_twse_taiex_current_month() -> pd.DataFrame:
+    """Fetch exact official TAIEX OHLC and market volume for the current month."""
+    month = datetime.now(TAIPEI_TZ).strftime("%Y%m01")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
+        "Referer": "https://www.twse.com.tw/",
+    }
+    urls = {
+        "ohlc": f"https://www.twse.com.tw/rwd/zh/TAIEX/MI_5MINS_HIST?date={month}&response=json",
+        "volume": f"https://www.twse.com.tw/rwd/zh/afterTrading/FMTQIK?date={month}&response=json",
+    }
+    payloads = {}
+    for key, url in urls.items():
+        response = requests.get(url, headers=headers, timeout=20)
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get("stat") != "OK":
+            raise ValueError(f"證交所加權指數{key}資料狀態異常:{payload.get('stat')}")
+        payloads[key] = payload
+
+    ohlc_by_date = {}
+    for row in payloads["ohlc"].get("data", []):
+        if len(row) < 5:
+            continue
+        date = _parse_twse_roc_date(row[0])
+        try:
+            ohlc_by_date[date] = [float(str(value).replace(",", "")) for value in row[1:5]]
+        except (TypeError, ValueError):
+            continue
+
+    volume_by_date = {}
+    for row in payloads["volume"].get("data", []):
+        if len(row) < 2:
+            continue
+        volume_by_date[_parse_twse_roc_date(row[0])] = _parse_int(row[1])
+
+    records = []
+    for date in sorted(set(ohlc_by_date) & set(volume_by_date)):
+        open_, high, low, close = ohlc_by_date[date]
+        if any(pd.isna(value) for value in (open_, high, low, close)):
+            continue
+        records.append((date, open_, high, low, close, volume_by_date[date]))
+    if not records:
+        raise ValueError("證交所本月加權指數沒有可合併的OHLC與成交量")
+    return pd.DataFrame(
+        [record[1:] for record in records],
+        index=pd.DatetimeIndex([record[0] for record in records]),
+        columns=["Open", "High", "Low", "Close", "Volume"],
+    )
+
+
 def fetch_data(ticker: str, days: int) -> pd.DataFrame:
     # yfinance 的 end 是「不含當日」的結束日期；收盤後要抓到今天資料，必須設成台灣明天。
     end   = datetime.now(TAIPEI_TZ).date() + timedelta(days=1)
@@ -332,7 +388,11 @@ def fetch_data(ticker: str, days: int) -> pd.DataFrame:
     if df.empty:
         raise ValueError(f"無法取得 {ticker} 資料")
     df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
-    return df[["Open","High","Low","Close","Volume"]].dropna()
+    df = df[["Open","High","Low","Close","Volume"]].dropna()
+    if ticker == "^TWII":
+        official = fetch_twse_taiex_current_month()
+        df = pd.concat([df.loc[~df.index.normalize().isin(official.index)], official]).sort_index()
+    return df
 
 
 def _fetch_close_series(ticker: str, days: int = 180) -> pd.Series:
