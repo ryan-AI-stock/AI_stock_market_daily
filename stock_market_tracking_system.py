@@ -378,6 +378,65 @@ def fetch_twse_taiex_month(through_date: str | None = None) -> pd.DataFrame:
     )
 
 
+def fetch_twse_stock_month(ticker: str, through_date: str | None = None) -> pd.DataFrame:
+    """Fetch official TWSE OHLCV for one listed stock and requested month."""
+    if not ticker.upper().endswith(".TW"):
+        raise ValueError(f"{ticker} is not a TWSE listed ticker")
+    target = pd.Timestamp(through_date).date() if through_date else datetime.now(TAIPEI_TZ).date()
+    stock_id = ticker.upper().removesuffix(".TW")
+    url = (
+        "https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY"
+        f"?date={target.strftime('%Y%m01')}&stockNo={stock_id}&response=json"
+    )
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
+        "Referer": "https://www.twse.com.tw/",
+    }
+    response = requests.get(url, headers=headers, timeout=20)
+    response.raise_for_status()
+    payload = response.json()
+    if payload.get("stat") != "OK":
+        raise ValueError(f"證交所個股資料狀態異常:{ticker}:{payload.get('stat')}")
+    records = []
+    for row in payload.get("data", []):
+        if len(row) < 7:
+            continue
+        try:
+            records.append((
+                _parse_twse_roc_date(row[0]),
+                float(str(row[3]).replace(",", "")),
+                float(str(row[4]).replace(",", "")),
+                float(str(row[5]).replace(",", "")),
+                float(str(row[6]).replace(",", "")),
+                _parse_int(row[1]),
+            ))
+        except (TypeError, ValueError):
+            continue
+    if not records:
+        raise ValueError(f"證交所本月沒有 {ticker} 可用OHLCV")
+    return pd.DataFrame(
+        [record[1:] for record in records],
+        index=pd.DatetimeIndex([record[0] for record in records]),
+        columns=["Open", "High", "Low", "Close", "Volume"],
+    )
+
+
+def merge_official_stock_prices(adjusted: pd.DataFrame, official: pd.DataFrame) -> pd.DataFrame:
+    """Extend adjusted Yahoo history with official rows without mixing price bases."""
+    overlap = adjusted.index.normalize().intersection(official.index.normalize())
+    if overlap.empty:
+        raise ValueError("官方個股資料與調整價歷史沒有重疊日，無法安全換算")
+    anchor = overlap.max()
+    official_close = float(official.loc[anchor, "Close"])
+    if official_close <= 0:
+        raise ValueError("官方重疊日收盤價無效")
+    factor = float(adjusted.loc[anchor, "Close"]) / official_close
+    converted = official.copy()
+    converted.loc[:, ["Open", "High", "Low", "Close"]] *= factor
+    missing = converted.loc[~converted.index.normalize().isin(adjusted.index.normalize())]
+    return pd.concat([adjusted, missing]).sort_index()
+
+
 def fetch_data(ticker: str, days: int, through_date: str | None = None) -> pd.DataFrame:
     # yfinance 的 end 是「不含當日」的結束日期；收盤後要抓到今天資料，必須設成台灣明天。
     target = pd.Timestamp(through_date).date() if through_date else datetime.now(TAIPEI_TZ).date()
@@ -394,6 +453,9 @@ def fetch_data(ticker: str, days: int, through_date: str | None = None) -> pd.Da
     if ticker == "^TWII":
         official = fetch_twse_taiex_month(through_date)
         df = pd.concat([df.loc[~df.index.normalize().isin(official.index)], official]).sort_index()
+    elif ticker.upper().endswith(".TW"):
+        official = fetch_twse_stock_month(ticker, through_date)
+        df = merge_official_stock_prices(df, official)
     return df
 
 
@@ -3371,11 +3433,8 @@ def analyze_watchlist(
 def should_defer_incomplete_scheduled_run(runtime_options, exc: Exception) -> bool:
     return (
         runtime_options.github_actions
-        and runtime_options.github_event_name == "schedule"
         and isinstance(exc, ReportCompletenessError)
-        and not exc.failures
-        and not exc.missing_tickers
-        and bool(exc.stale_tickers)
+        and runtime_options.github_event_name in {"schedule", "workflow_dispatch"}
     )
 
 

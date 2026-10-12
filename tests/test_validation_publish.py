@@ -12,6 +12,40 @@ import stock_market_tracking_system as sm
 
 class ValidationPublishTests(unittest.TestCase):
     @patch("stock_market_tracking_system.requests.get")
+    def test_fetches_exact_official_twse_stock_ohlcv(self, requests_get):
+        response = SimpleNamespace()
+        response.raise_for_status = lambda: None
+        response.json = lambda: {
+            "stat": "OK",
+            "data": [["115/10/12", "12,345,000", "0", "1,200", "1,230", "1,190", "1,225"]],
+        }
+        requests_get.return_value = response
+
+        result = sm.fetch_twse_stock_month("2330.TW", "2026-10-12")
+
+        self.assertEqual(result.index[-1].strftime("%Y-%m-%d"), "2026-10-12")
+        self.assertEqual(result.iloc[-1]["Close"], 1225.0)
+        self.assertEqual(result.iloc[-1]["Volume"], 12345000)
+
+    def test_official_stock_extension_preserves_adjusted_price_basis(self):
+        adjusted = pd.DataFrame(
+            {"Open": [80.0], "High": [82.0], "Low": [79.0], "Close": [80.0], "Volume": [100]},
+            index=pd.to_datetime(["2026-10-08"]),
+        )
+        official = pd.DataFrame(
+            {
+                "Open": [100.0, 105.0], "High": [102.0, 108.0], "Low": [99.0, 104.0],
+                "Close": [100.0, 106.0], "Volume": [100, 120],
+            },
+            index=pd.to_datetime(["2026-10-08", "2026-10-12"]),
+        )
+
+        result = sm.merge_official_stock_prices(adjusted, official)
+
+        self.assertAlmostEqual(result.loc[pd.Timestamp("2026-10-12"), "Close"], 84.8)
+        self.assertEqual(result.loc[pd.Timestamp("2026-10-12"), "Volume"], 120)
+
+    @patch("stock_market_tracking_system.requests.get")
     def test_fetches_exact_official_taiex_ohlc_and_volume(self, requests_get):
         ohlc = SimpleNamespace()
         ohlc.raise_for_status = lambda: None

@@ -58,7 +58,7 @@ class ValidateReportCompletenessTests(unittest.TestCase):
 
         self.assertTrue(sm.should_defer_incomplete_scheduled_run(runtime, stale_error))
 
-    def test_does_not_defer_manual_or_analysis_failure(self):
+    def test_manual_repair_and_analysis_failure_are_finitely_retried(self):
         manual_runtime = SimpleNamespace(github_actions=True, github_event_name="workflow_dispatch")
         schedule_runtime = SimpleNamespace(github_actions=True, github_event_name="schedule")
         failure_error = sm.ReportCompletenessError(
@@ -74,8 +74,8 @@ class ValidateReportCompletenessTests(unittest.TestCase):
             stale_tickers=["^TWII"],
         )
 
-        self.assertFalse(sm.should_defer_incomplete_scheduled_run(manual_runtime, stale_error))
-        self.assertFalse(sm.should_defer_incomplete_scheduled_run(schedule_runtime, failure_error))
+        self.assertTrue(sm.should_defer_incomplete_scheduled_run(manual_runtime, stale_error))
+        self.assertTrue(sm.should_defer_incomplete_scheduled_run(schedule_runtime, failure_error))
 
 
 class GetReportDateTests(unittest.TestCase):
