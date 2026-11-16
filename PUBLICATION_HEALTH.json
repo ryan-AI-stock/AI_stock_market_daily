@@ -1,12 +1,13 @@
 {
-  "checked_at": "2026-09-21T08:14:15.058537+08:00",
+  "checked_at": "2026-11-16T23:24:26.690651+08:00",
   "artifact": "daily_pdf",
   "result": {
     "status": "current",
-    "expected_date": "2026-09-18",
-    "observed_date": "2026-09-18",
+    "expected_date": "2026-11-16",
+    "observed_date": "2026-11-16",
     "pages": 4,
-    "modified_time": "2026-09-20T23:54:54.337Z"
+    "modified_time": "2026-11-16T15:18:26.188Z"
   },
-  "audit_run_url": "https://github.com/ryan-AI-stock/AI_stock_rotation_radar/actions/runs/35547021397"
+  "audit_run_url": "https://github.com/ryan-AI-stock/AI_stock_rotation_radar/actions/runs/43895887093",
+  "purpose": "Verified output freshness and scheduled-publication maintenance"
 }
